@@ -10,7 +10,7 @@ import {
 import {
   Upload, Calculator, TrendingDown, Clock, PoundSterling, Lock,
   FileText, AlertTriangle, CheckCircle, Info, ArrowRight, Server,
-  Banknote, Target, Zap, Shield, ChevronDown, Mail, Loader,
+  Banknote, Target, Zap, Shield, ChevronDown, Mail, Loader, Building2,
 } from "lucide-react";
 
 /* ═══════════════════════════════════════════════════════════════════════════════
@@ -731,10 +731,15 @@ function LandingPage({ onStart }) {
           Upload your mortgage statement or enter your details. Our calculator analyses your mortgage and shows you exactly how to save thousands in interest and pay it off faster.
         </p>
 
-        <button onClick={onStart} style={{ ...S.heroBtn }}>
-          Analyse My Mortgage <ArrowRight size={18} />
-        </button>
-        <p style={{ marginTop: 16, fontSize: 13, color: "#999" }}>Free to use — no sign-up required</p>
+        <div style={{ display: "flex", gap: 16, justifyContent: "center", flexWrap: "wrap", marginBottom: 16 }}>
+          <button onClick={onStart} style={{ ...S.heroBtn }}>
+            Analyse My Mortgage <ArrowRight size={18} />
+          </button>
+          <button onClick={() => window.location.href = "/portfolio"} style={{ ...S.heroBtn, background: "linear-gradient(135deg, #7C3AED, #6366F1)", boxShadow: "0 4px 20px rgba(124,58,237,0.3)" }}>
+            <Building2 size={18} /> Portfolio Manager
+          </button>
+        </div>
+        <p style={{ marginTop: 8, fontSize: 13, color: "#999" }}>Free to use — no sign-up required</p>
         </div>
       </div>
 
