@@ -479,13 +479,90 @@ function Header({ onBack }) {
   );
 }
 
+/* ═══════════════════════════════════════════════════════════════════════════════
+   MONEY BACKGROUND
+   ═══════════════════════════════════════════════════════════════════════════════ */
+
+function MoneyBackground() {
+  const icons = [
+    // [symbol/type, top%, left%, size, floatClass, color]
+    ["£", 8,  7,  64, "money-float-1",  "#6366F1"],
+    ["£", 14, 88, 48, "money-float-2",  "#8B5CF6"],
+    ["£", 72, 5,  56, "money-float-3",  "#6366F1"],
+    ["£", 80, 92, 44, "money-float-4",  "#4F46E5"],
+    ["£", 44, 3,  36, "money-float-5",  "#7C3AED"],
+    ["£", 55, 95, 52, "money-float-6",  "#6366F1"],
+    ["coin", 22, 20, 52, "money-float-7",  "#6366F1"],
+    ["coin", 65, 78, 44, "money-float-8",  "#8B5CF6"],
+    ["coin", 38, 58, 36, "money-float-9",  "#4F46E5"],
+    ["coin", 85, 40, 48, "money-float-10", "#7C3AED"],
+    ["spark", 30, 12, 28, "money-float-11", "#6366F1"],
+    ["spark", 50, 85, 24, "money-float-12", "#8B5CF6"],
+    ["spark", 18, 50, 20, "money-float-1",  "#4F46E5"],
+    ["spark", 75, 65, 22, "money-float-3",  "#6366F1"],
+  ];
+
+  return (
+    <div style={{ position: "absolute", inset: 0, overflow: "hidden", pointerEvents: "none", zIndex: 0 }}>
+      {icons.map(([type, top, left, size, cls, color], i) => (
+        <div
+          key={i}
+          className={cls}
+          style={{ position: "absolute", top: `${top}%`, left: `${left}%` }}
+        >
+          {type === "£" && (
+            <svg width={size} height={size} viewBox="0 0 64 64" fill="none">
+              <circle cx="32" cy="32" r="30" stroke={color} strokeWidth="2.5" opacity="0.25" />
+              <text x="50%" y="54%" dominantBaseline="middle" textAnchor="middle"
+                fontSize="30" fontWeight="800" fill={color} opacity="0.6"
+                fontFamily="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif">£</text>
+            </svg>
+          )}
+          {type === "coin" && (
+            <svg width={size} height={size} viewBox="0 0 56 56" fill="none">
+              <ellipse cx="28" cy="28" rx="26" ry="26" fill={color} opacity="0.08" />
+              <ellipse cx="28" cy="28" rx="26" ry="26" stroke={color} strokeWidth="2" opacity="0.3" />
+              <ellipse cx="28" cy="22" rx="22" ry="6" fill="none" stroke={color} strokeWidth="1.5" opacity="0.25" />
+              <line x1="28" y1="16" x2="28" y2="40" stroke={color} strokeWidth="2" opacity="0.25" />
+              <path d="M22 22 Q28 26 34 22" stroke={color} strokeWidth="1.5" fill="none" opacity="0.3" />
+              <path d="M22 34 Q28 38 34 34" stroke={color} strokeWidth="1.5" fill="none" opacity="0.3" />
+            </svg>
+          )}
+          {type === "spark" && (
+            <svg width={size} height={size} viewBox="0 0 32 32" fill="none">
+              <path d="M16 2 L18 13 L29 16 L18 19 L16 30 L14 19 L3 16 L14 13 Z"
+                fill={color} opacity="0.35" />
+            </svg>
+          )}
+        </div>
+      ))}
+
+      {/* Large blurred orbs for depth */}
+      <div style={{
+        position: "absolute", top: "5%", right: "10%",
+        width: 320, height: 320, borderRadius: "50%",
+        background: "radial-gradient(circle, rgba(99,102,241,0.09) 0%, transparent 70%)",
+        filter: "blur(40px)",
+      }} />
+      <div style={{
+        position: "absolute", bottom: "10%", left: "5%",
+        width: 260, height: 260, borderRadius: "50%",
+        background: "radial-gradient(circle, rgba(139,92,246,0.08) 0%, transparent 70%)",
+        filter: "blur(40px)",
+      }} />
+    </div>
+  );
+}
+
 function LandingPage({ onStart }) {
   return (
     <div style={S.page}>
       <Header onBack={() => {}} />
 
       {/* Hero */}
-      <div style={{ maxWidth: 900, margin: "0 auto", padding: "80px 20px 60px", textAlign: "center" }}>
+      <div style={{ position: "relative", overflow: "hidden", background: "linear-gradient(160deg, #f8f7ff 0%, #fafbff 50%, #f0f4ff 100%)" }}>
+        <MoneyBackground />
+        <div style={{ maxWidth: 900, margin: "0 auto", padding: "80px 20px 60px", textAlign: "center", position: "relative", zIndex: 1 }}>
         <div style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "#EEF2FF", border: "1px solid #C7D2FE", borderRadius: 20, padding: "6px 16px", fontSize: 13, color: "#4338CA", fontWeight: 500, marginBottom: 24 }}>
           <Zap size={14} /> AI-Powered Mortgage Analysis
         </div>
@@ -503,6 +580,7 @@ function LandingPage({ onStart }) {
           Analyse My Mortgage <ArrowRight size={18} />
         </button>
         <p style={{ marginTop: 16, fontSize: 13, color: "#999" }}>Free to use — no sign-up required</p>
+        </div>
       </div>
 
       {/* Features */}

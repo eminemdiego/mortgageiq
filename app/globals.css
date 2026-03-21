@@ -50,6 +50,50 @@ html {
   }
 }
 
+/* ─── Money background animations ───────────────────────────────────────────── */
+
+@keyframes floatUp {
+  0%   { transform: translateY(0px) rotate(0deg);   opacity: 0.07; }
+  50%  { transform: translateY(-18px) rotate(6deg);  opacity: 0.13; }
+  100% { transform: translateY(0px) rotate(0deg);   opacity: 0.07; }
+}
+
+@keyframes floatSlow {
+  0%   { transform: translateY(0px) rotate(-4deg);  opacity: 0.06; }
+  50%  { transform: translateY(-24px) rotate(4deg); opacity: 0.11; }
+  100% { transform: translateY(0px) rotate(-4deg);  opacity: 0.06; }
+}
+
+@keyframes floatWobble {
+  0%   { transform: translateY(0px)  rotate(0deg);  opacity: 0.08; }
+  33%  { transform: translateY(-12px) rotate(-5deg); opacity: 0.14; }
+  66%  { transform: translateY(-6px)  rotate(5deg);  opacity: 0.10; }
+  100% { transform: translateY(0px)  rotate(0deg);  opacity: 0.08; }
+}
+
+@keyframes shimmer {
+  0%   { background-position: -400px 0; }
+  100% { background-position: 400px 0; }
+}
+
+@keyframes pulse-glow {
+  0%, 100% { opacity: 0.04; }
+  50%       { opacity: 0.10; }
+}
+
+.money-float-1 { animation: floatUp     7s ease-in-out infinite; }
+.money-float-2 { animation: floatSlow   9s ease-in-out infinite 1.5s; }
+.money-float-3 { animation: floatWobble 11s ease-in-out infinite 0.8s; }
+.money-float-4 { animation: floatUp     8s ease-in-out infinite 3s; }
+.money-float-5 { animation: floatSlow   10s ease-in-out infinite 2.2s; }
+.money-float-6 { animation: floatWobble 6s ease-in-out infinite 4s; }
+.money-float-7 { animation: floatUp     12s ease-in-out infinite 0.3s; }
+.money-float-8 { animation: floatSlow   7.5s ease-in-out infinite 5s; }
+.money-float-9 { animation: floatWobble 9.5s ease-in-out infinite 1s; }
+.money-float-10 { animation: floatUp    13s ease-in-out infinite 2.8s; }
+.money-float-11 { animation: floatSlow  8.5s ease-in-out infinite 0.5s; }
+.money-float-12 { animation: floatWobble 10.5s ease-in-out infinite 3.5s; }
+
 /* ─── Responsive tweaks ─────────────────────────────────────────────────────── */
 
 @media (max-width: 768px) {
