@@ -8,7 +8,7 @@ import {
   Download, Building2, TrendingDown, Mail, RefreshCw,
 } from "lucide-react";
 
-const ADMIN_EMAIL = "admin@medullasupplies.co.uk";
+const ADMIN_EMAIL = "ahmed.sarwar@hotmail.co.uk";
 
 const PAGE = {
   minHeight: "100vh",

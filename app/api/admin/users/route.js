@@ -1,7 +1,7 @@
 import { auth } from "@/app/api/auth/[...nextauth]/route";
 import { createClient } from "@supabase/supabase-js";
 
-const ADMIN_EMAIL = "admin@medullasupplies.co.uk";
+const ADMIN_EMAIL = "ahmed.sarwar@hotmail.co.uk";
 
 function supabase() {
   return createClient(
