@@ -64,11 +64,11 @@ const authConfig = {
     }),
   ],
   callbacks: {
-    async signIn({ user, account, profile }) {
-      if (account?.provider === "google") {
-        const supabase = createSupabaseClient();
-        if (!supabase) return true;
+    async signIn({ user, account }) {
+      const supabase = createSupabaseClient();
+      if (!supabase) return true;
 
+      if (account?.provider === "google") {
         const { data: existingUser } = await supabase
           .from("users")
           .select("id")
@@ -81,8 +81,20 @@ const authConfig = {
             name: user.name,
             auth_provider: "google",
             auth_id: account.providerAccountId,
+            last_login: new Date().toISOString(),
           });
+        } else {
+          await supabase
+            .from("users")
+            .update({ last_login: new Date().toISOString() })
+            .eq("email", user.email);
         }
+      } else {
+        // Credentials login — update last_login
+        await supabase
+          .from("users")
+          .update({ last_login: new Date().toISOString() })
+          .eq("email", user.email);
       }
       return true;
     },
