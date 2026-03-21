@@ -1,4 +1,4 @@
-# Mortgage AI Calc — AI-Powered Mortgage Analyser
+# Mortgage AI Calc — Smart Mortgage Analyser
 
 ## Quick Deploy (5 minutes)
 
@@ -54,7 +54,7 @@ mortgageiq/
 
 ## Next Steps
 
-- **AI Statement Parsing**: Add an API route (`app/api/parse/route.js`) that sends uploaded PDFs to Claude API for extraction
+- **Statement Parsing**: Add an API route (`app/api/parse/route.js`) that processes uploaded PDFs and extracts mortgage details.
 - **User Accounts**: Add NextAuth.js for sign-in / save analyses
 - **Database**: Add Supabase or PlanetScale to persist user data
 - **Payments**: Add Stripe for premium features

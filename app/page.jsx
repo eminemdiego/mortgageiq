@@ -613,7 +613,7 @@ function LandingPage({ onStart }) {
         <MoneyBackground />
         <div style={{ maxWidth: 900, margin: "0 auto", padding: "80px 20px 60px", textAlign: "center", position: "relative", zIndex: 1 }}>
         <div style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "#EEF2FF", border: "1px solid #C7D2FE", borderRadius: 20, padding: "6px 16px", fontSize: 13, color: "#4338CA", fontWeight: 500, marginBottom: 24 }}>
-          <Zap size={14} /> AI-Powered Mortgage Analysis
+          <Zap size={14} /> Advanced Mortgage Analysis
         </div>
 
         <h1 style={{ fontSize: 52, fontWeight: 800, lineHeight: 1.15, marginBottom: 20, letterSpacing: "-0.02em" }}>
@@ -622,7 +622,7 @@ function LandingPage({ onStart }) {
         </h1>
 
         <p style={{ fontSize: 19, color: "#555", maxWidth: 600, margin: "0 auto 40px", lineHeight: 1.6 }}>
-          Upload your mortgage statement or enter your details. Our AI analyses your mortgage and shows you exactly how to save thousands in interest and pay it off faster.
+          Upload your mortgage statement or enter your details. Our calculator analyses your mortgage and shows you exactly how to save thousands in interest and pay it off faster.
         </p>
 
         <button onClick={onStart} style={{ ...S.heroBtn }}>
@@ -636,7 +636,7 @@ function LandingPage({ onStart }) {
       <div style={{ maxWidth: 1000, margin: "0 auto", padding: "0 20px 80px" }}>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 20 }}>
           {[
-            { icon: <Upload size={22} />, title: "Smart Statement Upload", desc: "Upload your mortgage PDF and our AI extracts your balance, rate, term, and lender automatically." },
+            { icon: <Upload size={22} />, title: "Smart Statement Scan", desc: "Upload your mortgage PDF and we'll extract your balance, rate, term, and lender automatically." },
             { icon: <TrendingDown size={22} />, title: "Overpayment Strategies", desc: "See exactly how extra monthly payments shrink your term and the total interest you'll save." },
             { icon: <Target size={22} />, title: "Rate Change Projections", desc: "What if rates go up 1%? Or drop? See how every scenario affects your monthly payments and total cost." },
           ].map((f, i) => (
@@ -747,7 +747,7 @@ function UploadSection({ uploadedFile, setUploadedFile, dragOver, setDragOver, o
           <div>
             <div style={{ width: 40, height: 40, borderRadius: "50%", border: "3px solid #E5E7EB", borderTopColor: "#6366F1", margin: "0 auto 12px", animation: "spin 0.8s linear infinite" }} />
             <p style={{ fontWeight: 600, marginBottom: 4 }}>Analysing your document...</p>
-            <p style={{ fontSize: 13, color: "#666" }}>Extracting mortgage details with AI</p>
+            <p style={{ fontSize: 13, color: "#666" }}>Extracting mortgage details...</p>
           </div>
         ) : uploadedFile ? (
           <div>
@@ -771,7 +771,7 @@ function UploadSection({ uploadedFile, setUploadedFile, dragOver, setDragOver, o
           <div>
             <Upload size={40} color="#9CA3AF" style={{ marginBottom: 12 }} />
             <p style={{ fontWeight: 600, marginBottom: 4 }}>Drop your mortgage statement here</p>
-            <p style={{ fontSize: 13, color: "#666" }}>PDF, JPG, or PNG — we'll extract all the key details using AI</p>
+            <p style={{ fontSize: 13, color: "#666" }}>PDF, JPG, or PNG — we'll extract all the key details automatically</p>
           </div>
         )}
       </div>
@@ -786,7 +786,7 @@ function UploadSection({ uploadedFile, setUploadedFile, dragOver, setDragOver, o
         {[
           { icon: <Lock size={14} />, text: "Encrypted in transit (HTTPS/TLS)" },
           { icon: <Shield size={14} />, text: "Not stored — deleted after processing" },
-          { icon: <Server size={14} />, text: "AI processing via Anthropic Claude" },
+          { icon: <Server size={14} />, text: "Advanced document processing" },
           { icon: <FileText size={14} />, text: "Max 10 MB · PDF only" },
         ].map((b, i) => (
           <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", background: "#F9FAFB", borderRadius: 8, border: "1px solid #E5E7EB" }}>
@@ -798,7 +798,7 @@ function UploadSection({ uploadedFile, setUploadedFile, dragOver, setDragOver, o
       <p style={{ marginTop: 10, fontSize: 11, color: "#9CA3AF", textAlign: "center" }}>
         By uploading you agree to our{" "}
         <a href="/privacy" style={{ color: "#6366F1" }}>Privacy Policy</a>.
-        Your PDF is sent securely to our server and forwarded to Anthropic for AI extraction, then discarded.
+        Your PDF is sent securely to our server and processed securely, then discarded.
       </p>
     </div>
   );
@@ -947,7 +947,7 @@ function ResultsDashboard({ analysis, form, parsedData, extraPayment, setExtraPa
           setAiRecs(data.recommendations);
         }
       })
-      .catch((err) => console.error("AI recs fetch error:", err))
+      .catch((err) => console.error("recommendations fetch error:", err))
       .finally(() => setAiLoading(false));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -1432,10 +1432,10 @@ function ResultsDashboard({ analysis, form, parsedData, extraPayment, setExtraPa
           })()}
         </Card>
 
-        {/* AI Recommendations */}
+        {/* Recommendations */}
         <div style={{ background: "linear-gradient(135deg, #6366F1, #4F46E5)", borderRadius: 16, padding: 28, marginBottom: 24, color: "white" }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16, gap: 12, flexWrap: "wrap" }}>
-            <h3 style={{ fontSize: 18, fontWeight: 600, margin: 0 }}>AI Recommendations</h3>
+            <h3 style={{ fontSize: 18, fontWeight: 600, margin: 0 }}>Your Personalised Recommendations</h3>
             <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
               <button
                 onClick={() => window.print()}

@@ -23,9 +23,9 @@ export default function PrivacyPolicy() {
         <div style={{ background: "#EEF2FF", border: "1px solid #C7D2FE", borderRadius: 16, padding: 24, marginBottom: 40 }}>
           <h2 style={{ fontSize: 16, fontWeight: 700, color: "#312E81", marginBottom: 12 }}>Plain-English Summary</h2>
           <ul style={{ margin: 0, paddingLeft: 20, color: "#4338CA", fontSize: 14, lineHeight: 2 }}>
-            <li>Your PDF and mortgage figures are sent to our secure server to be processed by AI — they are <strong>not stored</strong> afterwards.</li>
-            <li>We use Anthropic's Claude AI to read your mortgage statement. Anthropic's data-processing terms apply.</li>
-            <li>If you choose to email your report, your figures pass through Resend (our email provider) to reach you.</li>
+            <li>Your PDF and mortgage figures are sent to our secure server for processing — they are <strong>not stored</strong> afterwards.</li>
+            <li>We use a third-party document processing service to read your mortgage statement. Their data-processing terms apply.</li>
+            <li>If you choose to email your report, your figures pass through our email provider to reach you.</li>
             <li>If you create an account and click "Save Analysis", your mortgage figures are stored in our database so you can revisit them.</li>
             <li>We do not sell, share, or use your data for advertising.</li>
             <li>We use no tracking cookies, analytics scripts, or session recording tools.</li>
@@ -33,7 +33,7 @@ export default function PrivacyPolicy() {
         </div>
 
         <Section icon={<Lock size={20} />} title="1. What data we collect and why">
-          <p>When you upload a mortgage statement PDF, the file is transmitted over HTTPS to our server. Our server forwards the document to <strong>Anthropic</strong> (the company behind the Claude AI) to extract your mortgage details. Anthropic processes the document in line with its <a href="https://www.anthropic.com/legal/privacy" target="_blank" rel="noopener noreferrer" style={{ color: "#6366F1" }}>privacy policy</a> and API terms — which prohibit training on API inputs by default.</p>
+          <p>When you upload a mortgage statement PDF, the file is transmitted over HTTPS to our server. Our server forwards the document to a third-party document processing service to extract your mortgage details. That service processes the document under strict data-handling terms — training on customer data via API is prohibited by default.</p>
           <p style={{ marginTop: 12 }}>After extraction, the raw PDF is not stored on any server. The extracted data (balance, rate, term, lender, etc.) lives in your browser session only — unless you explicitly choose to save or email it.</p>
         </Section>
 
@@ -49,8 +49,8 @@ export default function PrivacyPolicy() {
             <tbody>
               {[
                 ["Vercel", "Website hosting & serverless functions", "All traffic passes through Vercel's infrastructure"],
-                ["Anthropic (Claude)", "AI extraction of mortgage details from your PDF", "Your PDF content and extracted mortgage figures"],
-                ["Resend", "Sending your email report (only if you request it)", "Your email address and mortgage summary figures"],
+                ["Document Processing Service", "Extraction of mortgage details from your PDF", "Your PDF content and extracted mortgage figures"],
+                ["Email Provider", "Sending your email report (only if you request it)", "Your email address and mortgage summary figures"],
                 ["Supabase", "Storing saved analyses (only if you are logged in and click Save)", "Balance, rate, term, lender, mortgage type"],
               ].map(([svc, purpose, data], i) => (
                 <tr key={i} style={{ borderBottom: "1px solid #F3F4F6" }}>
@@ -65,7 +65,7 @@ export default function PrivacyPolicy() {
 
         <Section icon={<Database size={20} />} title="3. Data storage">
           <p><strong>No account / no save:</strong> Nothing is persisted. All data lives only in your browser tab and is gone when you close it.</p>
-          <p style={{ marginTop: 12 }}><strong>Saved analyses (logged-in users):</strong> If you click "Save Analysis", the following fields are stored in our Supabase database, linked to your user account: outstanding balance, monthly payment, interest rate, remaining term, lender name, and mortgage type. No property address, no account numbers, no personal identifiers beyond your user ID.</p>
+          <p style={{ marginTop: 12 }}><strong>Saved analyses (logged-in users):</strong> If you click "Save Analysis", the following fields are stored in our database linked to your user account: outstanding balance, monthly payment, interest rate, remaining term, lender name, and mortgage type. No property address, no account numbers, no personal identifiers beyond your user ID.</p>
           <p style={{ marginTop: 12 }}>You can delete any saved analysis at any time from the Analyses page.</p>
         </Section>
 
@@ -87,7 +87,7 @@ export default function PrivacyPolicy() {
         </Section>
 
         <Section icon={<Mail size={20} />} title="6. Contact">
-          <p>Questions about this policy? Email us at <a href="mailto:support@mortgageiq.com" style={{ color: "#6366F1" }}>support@mortgageiq.com</a>.</p>
+          <p>Questions about this policy? Email us at <a href="mailto:support@mortgageaicalc.com" style={{ color: "#6366F1" }}>support@mortgageaicalc.com</a>.</p>
           <p style={{ marginTop: 12 }}>This policy may be updated from time to time. The "Last updated" date at the top will always reflect the most recent version.</p>
         </Section>
       </div>

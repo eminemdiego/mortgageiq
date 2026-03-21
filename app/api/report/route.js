@@ -95,7 +95,7 @@ Return ONLY a JSON array of strings — no markdown, no code fences, no explanat
       messages: [{ role: "user", content: prompt }],
     });
   } catch (err) {
-    console.error("Claude API error:", err);
+    console.error("Processing API error:", err);
     return NextResponse.json(
       { error: "AI service error. Please try again." },
       { status: 502 }
@@ -109,7 +109,7 @@ Return ONLY a JSON array of strings — no markdown, no code fences, no explanat
     recommendations = JSON.parse(jsonMatch ? jsonMatch[0] : responseText);
     if (!Array.isArray(recommendations)) throw new Error("Not an array");
   } catch {
-    console.error("Failed to parse Claude recommendations response:", responseText);
+    console.error("Failed to parse recommendations response:", responseText);
     return NextResponse.json(
       { error: "Failed to parse AI response." },
       { status: 500 }

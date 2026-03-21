@@ -124,11 +124,11 @@ export async function POST(request) {
         const pdfData = await parser.getText();
         documentText = pdfData.text?.trim();
       } catch (err) {
-        console.error("pdf-parse failed, will use Claude vision:", err.message);
+        console.error("pdf-parse failed, will use document API:", err.message);
       }
 
       if (documentText && documentText.length > 100) {
-        // Good text — send as plain text to Claude
+        // Good text — send as plain text
         messageContent = [
           {
             type: "text",
@@ -136,7 +136,7 @@ export async function POST(request) {
           },
         ];
       } else {
-        // Scanned/image PDF — send as base64 document for Claude vision
+        // Scanned/image PDF — send as base64 document via document API
         messageContent = [
           {
             type: "document",
@@ -165,7 +165,7 @@ export async function POST(request) {
       ];
     }
 
-    // 4. Call Claude
+    // 4. Call processing service
     let response;
     try {
       response = await client.messages.create({
@@ -174,24 +174,24 @@ export async function POST(request) {
         messages: [{ role: "user", content: messageContent }],
       });
     } catch (err) {
-      console.error("Claude API error:", err);
+      console.error("Processing API error:", err);
       const msg =
         err?.status === 401
           ? "Invalid API key. Please check server configuration."
           : err?.status === 429 || err?.status === 529
-          ? "AI service is busy. Please try again in a moment."
-          : `AI service error (${err?.status ?? "unknown"}). Please try again.`;
+          ? "Service is busy. Please try again in a moment."
+          : `Service error (${err?.status ?? "unknown"}). Please try again.`;
       return NextResponse.json({ error: msg }, { status: 502 });
     }
 
-    // 5. Parse Claude's JSON response
+    // 5. Parse's JSON response
     const responseText = response.content[0].text;
     let extractedData;
     try {
       const jsonMatch = responseText.match(/\{[\s\S]*\}/);
       extractedData = JSON.parse(jsonMatch ? jsonMatch[0] : responseText);
     } catch {
-      console.error("Failed to parse Claude response:", responseText);
+      console.error("Failed to parse response:", responseText);
       return NextResponse.json(
         { error: "Could not read document structure. Please enter details manually." },
         { status: 400 }
