@@ -182,6 +182,23 @@ export default function MortgageAnalyzer() {
   const updateForm = (key, value) =>
     setForm((prev) => ({ ...prev, [key]: value }));
 
+  // Re-analyse: restore form state saved from a historical snapshot
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem("mortgageiq_reanalyse");
+      if (!stored) return;
+      localStorage.removeItem("mortgageiq_reanalyse");
+      const { form: savedForm, parsedData: savedParsedData } = JSON.parse(stored);
+      if (savedForm) {
+        setForm((prev) => ({ ...prev, ...savedForm }));
+        setInputMethod("upload");
+      }
+      if (savedParsedData) setParsedData(savedParsedData);
+    } catch {
+      // ignore malformed storage
+    }
+  }, []);
+
   // Handle file upload and parsing
   const handleFileUpload = async (file) => {
     if (!file) return;
@@ -1404,7 +1421,15 @@ function ResultsDashboard({ analysis, form, parsedData, adjustment, adjBalance, 
           mortgageType: form.mortgageType,
           rateType: form.rateType,
           bank: form.bank,
-          analysisData: analysis,
+          propertyAddress: parsedData?.propertyAddress || "",
+          statementDate: parsedData?.statementDate || null,
+          analysisData: {
+            form,
+            parsedData,
+            adjBalance,
+            adjYears,
+            adjustment,
+          },
         }),
       });
 

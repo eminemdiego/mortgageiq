@@ -105,7 +105,10 @@ export default function MyAnalyses() {
         ) : (
           <div style={{ display: "grid", gap: 16 }}>
             {analyses.map((analysis) => (
-              <div key={analysis.id} style={{ background: "white", borderRadius: 16, border: "1px solid #E5E7EB", padding: 24, transition: "all 0.2s" }}>
+              <div key={analysis.id} onClick={() => router.push(`/analyses/${analysis.id}`)} style={{ background: "white", borderRadius: 16, border: "1px solid #E5E7EB", padding: 24, transition: "all 0.2s", cursor: "pointer" }}
+                onMouseEnter={(e) => { e.currentTarget.style.borderColor = "#6366F1"; e.currentTarget.style.boxShadow = "0 0 0 3px #EEF2FF"; }}
+                onMouseLeave={(e) => { e.currentTarget.style.borderColor = "#E5E7EB"; e.currentTarget.style.boxShadow = "none"; }}
+              >
                 <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 16 }}>
                   <div style={{ flex: 1 }}>
                     <h3 style={{ fontSize: 18, fontWeight: 600, marginBottom: 4 }}>{analysis.title}</h3>
@@ -121,7 +124,7 @@ export default function MyAnalyses() {
                     </p>
                   </div>
                   <button
-                    onClick={() => handleDelete(analysis.id)}
+                    onClick={(e) => { e.stopPropagation(); handleDelete(analysis.id); }}
                     disabled={deletingId === analysis.id}
                     style={{
                       padding: "8px 12px",
@@ -163,8 +166,15 @@ export default function MyAnalyses() {
                   </div>
                 </div>
 
+                {/* Property address if available */}
+                {analysis.property_address && (
+                  <p style={{ fontSize: 13, color: "#6B7280", marginBottom: 12 }}>
+                    {analysis.property_address}
+                  </p>
+                )}
+
                 {/* Type badges */}
-                <div style={{ display: "flex", gap: 8 }}>
+                <div style={{ display: "flex", gap: 8, alignItems: "center", justifyContent: "space-between" }}>
                   {analysis.bank && (
                     <span style={{ padding: "4px 12px", background: "#EEF2FF", color: "#6366F1", borderRadius: 6, fontSize: 12, fontWeight: 500 }}>
                       {analysis.bank}
@@ -180,6 +190,7 @@ export default function MyAnalyses() {
                       {analysis.rate_type}
                     </span>
                   )}
+                  <span style={{ fontSize: 12, color: "#6366F1", fontWeight: 500, marginLeft: "auto" }}>View full report →</span>
                 </div>
               </div>
             ))}

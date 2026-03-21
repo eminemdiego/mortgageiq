@@ -30,7 +30,7 @@ Rules:
 - address: property address if shown on the document
 - Never guess or invent values — use null if not found.`,
 
-  tenancy: `You are an expert UK tenancy agreement parser. Extract tenancy details from this Assured Shorthold Tenancy or similar rental agreement.
+  tenancy: `You are an expert UK tenancy agreement parser. Extract tenancy details from this Assured Shorthold Tenancy (AST) or similar rental agreement.
 
 Return ONLY valid JSON (no markdown, no explanation):
 {
@@ -39,16 +39,28 @@ Return ONLY valid JSON (no markdown, no explanation):
   "tenancy_start": "YYYY-MM-DD" or null,
   "tenancy_end": "YYYY-MM-DD" or null,
   "deposit_amount": number or null,
-  "address": string or null
+  "address": string or null,
+  "break_clause_date": "YYYY-MM-DD" or null,
+  "break_clause_notice_months": number or null,
+  "deposit_scheme": "DPS" | "MyDeposits" | "TDS" | null,
+  "pet_clause": "allowed" | "not_allowed" | "with_permission" | null,
+  "notice_period_months": number or null,
+  "permitted_occupants": number or null
 }
 
 Rules:
 - monthly_rent: monthly rent in £ (if stated as annual, divide by 12; number only)
 - tenant_name: full name of tenant(s), multiple names separated by " & "
 - tenancy_start: start date in ISO YYYY-MM-DD format
-- tenancy_end: end/expiry date in ISO YYYY-MM-DD format
+- tenancy_end: end/expiry date in ISO YYYY-MM-DD format (the fixed-term end, not a rolling/periodic extension)
 - deposit_amount: security deposit in £ (number only)
 - address: full property address
+- break_clause_date: earliest date on which either party can exercise a break clause (ISO YYYY-MM-DD), or null if no break clause
+- break_clause_notice_months: notice period in months required to exercise the break clause, or null
+- deposit_scheme: which government-approved deposit protection scheme is named (DPS = Deposit Protection Service, MyDeposits, TDS = Tenancy Deposit Scheme), or null if not mentioned
+- pet_clause: "allowed" if pets are explicitly permitted, "not_allowed" if explicitly prohibited, "with_permission" if landlord consent is required, null if not mentioned
+- notice_period_months: notice period either party must give to end a periodic/rolling tenancy, in months (usually 1 or 2), or null
+- permitted_occupants: maximum number of permitted occupants if stated, or null
 - Never guess or invent values — use null if not found.`,
 
   agent: `You are an expert UK lettings agent agreement parser. Extract estate agent details from this management agreement or terms of business.
@@ -67,7 +79,7 @@ Rules:
 
 const FIELD_MAPS = {
   mortgage: ["outstanding_balance", "monthly_payment", "interest_rate", "remaining_years", "lender", "address"],
-  tenancy: ["monthly_rent", "tenant_name", "tenancy_start", "tenancy_end", "deposit_amount", "address"],
+  tenancy: ["monthly_rent", "tenant_name", "tenancy_start", "tenancy_end", "deposit_amount", "address", "break_clause_date", "break_clause_notice_months", "deposit_scheme", "pet_clause", "notice_period_months", "permitted_occupants"],
   agent: ["agent_name", "management_fee_pct"],
 };
 

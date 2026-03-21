@@ -5,6 +5,7 @@ import { useSession } from "next-auth/react";
 import { useRouter, useParams } from "next/navigation";
 import {
   ArrowLeft, Edit2, Trash2, AlertTriangle, CheckCircle, ChevronDown, ChevronUp,
+  Upload, X, Loader,
 } from "lucide-react";
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -72,12 +73,23 @@ export default function PropertyDetail() {
   const [savingExtras, setSavingExtras] = useState(false);
   const [extrasSaved, setExtrasSaved] = useState(false);
 
+  // Expenses state
+  const [expenses, setExpenses] = useState([]);
+  const [expensesOpen, setExpensesOpen] = useState(false);
+  const [expensesParsing, setExpensesParsing] = useState(false);
+  const [expensePreview, setExpensePreview] = useState(null);
+  const [savingExpense, setSavingExpense] = useState(false);
+  const [expenseError, setExpenseError] = useState("");
+
   useEffect(() => {
     if (status === "unauthenticated") router.push("/auth/signin");
   }, [status, router]);
 
   useEffect(() => {
-    if (session?.user?.id) fetchProperty();
+    if (session?.user?.id) {
+      fetchProperty();
+      fetchExpenses();
+    }
   }, [session, params.id]);
 
   const fetchProperty = async () => {
@@ -96,6 +108,58 @@ export default function PropertyDetail() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const fetchExpenses = async () => {
+    try {
+      const res = await fetch(`/api/portfolio/${params.id}/expenses`);
+      if (res.ok) setExpenses(await res.json());
+    } catch { /* silent */ }
+  };
+
+  const handleInvoiceUpload = async (file) => {
+    if (!file) return;
+    setExpensesParsing(true);
+    setExpenseError("");
+    setExpensePreview(null);
+    const fd = new FormData();
+    fd.append("file", file);
+    try {
+      const res = await fetch("/api/invoice-parse", { method: "POST", body: fd });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Failed");
+      setExpensePreview(json);
+    } catch (err) {
+      setExpenseError(err.message);
+    } finally {
+      setExpensesParsing(false);
+    }
+  };
+
+  const handleSaveExpense = async () => {
+    if (!expensePreview) return;
+    setSavingExpense(true);
+    setExpenseError("");
+    try {
+      const res = await fetch(`/api/portfolio/${params.id}/expenses`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(expensePreview),
+      });
+      if (!res.ok) throw new Error((await res.json()).error || "Failed");
+      setExpensePreview(null);
+      await fetchExpenses();
+    } catch (err) {
+      setExpenseError(err.message);
+    } finally {
+      setSavingExpense(false);
+    }
+  };
+
+  const handleDeleteExpense = async (expenseId) => {
+    if (!confirm("Delete this expense?")) return;
+    await fetch(`/api/portfolio/${params.id}/expenses?expenseId=${expenseId}`, { method: "DELETE" });
+    setExpenses((prev) => prev.filter((e) => e.id !== expenseId));
   };
 
   const handleDelete = async () => {
@@ -283,23 +347,97 @@ export default function PropertyDetail() {
         </div>
 
         {/* Tenancy Status */}
-        {(p.tenant_name || p.tenancy_end || p.deposit_amount) && (
-          <div style={CARD}>
-            <h2 style={{ fontSize: 17, fontWeight: 700, marginBottom: 16 }}>Tenancy</h2>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 20, fontSize: 14 }}>
-              {p.tenant_name && <div><span style={{ color: "#6B7280" }}>Tenant: </span><strong>{p.tenant_name}</strong></div>}
-              {p.deposit_amount > 0 && <div><span style={{ color: "#6B7280" }}>Deposit: </span><strong>{fmt(p.deposit_amount)}</strong></div>}
-              {p.tenancy_start && <div><span style={{ color: "#6B7280" }}>Start: </span><strong>{new Date(p.tenancy_start).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })}</strong></div>}
-              {p.tenancy_end && <div><span style={{ color: "#6B7280" }}>End: </span><strong>{new Date(p.tenancy_end).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })}</strong></div>}
-              {daysUntilEnd !== null && daysUntilEnd >= 0 && (
-                <span style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "4px 12px", background: daysUntilEnd <= 90 ? "#FEF3C7" : "#ECFDF5", color: daysUntilEnd <= 90 ? "#92400E" : "#065F46", borderRadius: 20, fontSize: 13, fontWeight: 500 }}>
-                  {daysUntilEnd <= 90 ? <AlertTriangle size={12} /> : <CheckCircle size={12} />}
-                  {daysUntilEnd} days remaining
-                </span>
+        {(p.tenant_name || p.tenancy_end || p.deposit_amount) && (() => {
+          const te = p.tenancy_extras || {};
+          // Deposit compliance: 5-week cap since June 2019
+          const fiveWeeksCap = p.monthly_rent ? Math.round((p.monthly_rent * 12) / 52 * 5) : null;
+          const depositOverCap = fiveWeeksCap && p.deposit_amount > fiveWeeksCap;
+          // Countdown bar width
+          const countdownPct = p.tenancy_start && p.tenancy_end
+            ? Math.max(0, Math.min(100, (daysUntilEnd / Math.round((new Date(p.tenancy_end) - new Date(p.tenancy_start)) / 86400000)) * 100))
+            : null;
+          // Break clause
+          const breakDate = te.break_clause_date ? new Date(te.break_clause_date) : null;
+          const daysToBreak = breakDate ? Math.round((breakDate - new Date()) / 86400000) : null;
+
+          return (
+            <div style={CARD}>
+              <h2 style={{ fontSize: 17, fontWeight: 700, marginBottom: 20 }}>Tenancy</h2>
+
+              {/* Core info grid */}
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16, marginBottom: 20 }}>
+                {p.tenant_name && (
+                  <div><p style={{ fontSize: 11, color: "#6B7280", marginBottom: 3 }}>Tenant</p><p style={{ fontWeight: 600 }}>{p.tenant_name}</p></div>
+                )}
+                {p.tenancy_start && (
+                  <div><p style={{ fontSize: 11, color: "#6B7280", marginBottom: 3 }}>Start date</p><p style={{ fontWeight: 600 }}>{new Date(p.tenancy_start).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}</p></div>
+                )}
+                {p.tenancy_end && (
+                  <div><p style={{ fontSize: 11, color: "#6B7280", marginBottom: 3 }}>End date</p><p style={{ fontWeight: 600 }}>{new Date(p.tenancy_end).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}</p></div>
+                )}
+                {te.notice_period_months && (
+                  <div><p style={{ fontSize: 11, color: "#6B7280", marginBottom: 3 }}>Notice period</p><p style={{ fontWeight: 600 }}>{te.notice_period_months} {te.notice_period_months === 1 ? "month" : "months"}</p></div>
+                )}
+                {te.pet_clause && (
+                  <div><p style={{ fontSize: 11, color: "#6B7280", marginBottom: 3 }}>Pets</p><p style={{ fontWeight: 600, color: te.pet_clause === "not_allowed" ? "#EF4444" : te.pet_clause === "allowed" ? "#10B981" : "#F59E0B" }}>{te.pet_clause === "allowed" ? "Allowed" : te.pet_clause === "not_allowed" ? "Not allowed" : "With permission"}</p></div>
+                )}
+                {te.permitted_occupants && (
+                  <div><p style={{ fontSize: 11, color: "#6B7280", marginBottom: 3 }}>Max occupants</p><p style={{ fontWeight: 600 }}>{te.permitted_occupants}</p></div>
+                )}
+              </div>
+
+              {/* Countdown bar */}
+              {daysUntilEnd !== null && p.tenancy_end && countdownPct !== null && (
+                <div style={{ marginBottom: 20 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "#6B7280", marginBottom: 6 }}>
+                    <span>Tenancy progress</span>
+                    <span style={{ fontWeight: 600, color: daysUntilEnd < 0 ? "#EF4444" : daysUntilEnd <= 30 ? "#EF4444" : daysUntilEnd <= 90 ? "#F59E0B" : "#10B981" }}>
+                      {daysUntilEnd < 0 ? `Expired ${Math.abs(daysUntilEnd)} days ago` : `${daysUntilEnd} days remaining`}
+                    </span>
+                  </div>
+                  <div style={{ background: "#F3F4F6", borderRadius: 8, height: 8, overflow: "hidden" }}>
+                    <div style={{ height: "100%", borderRadius: 8, width: `${100 - countdownPct}%`, background: daysUntilEnd < 0 ? "#EF4444" : daysUntilEnd <= 30 ? "#EF4444" : daysUntilEnd <= 90 ? "#F59E0B" : "#10B981", transition: "width 0.5s ease" }} />
+                  </div>
+                </div>
+              )}
+
+              {/* Break clause alert */}
+              {breakDate && daysToBreak !== null && (
+                <div style={{ marginBottom: 16, padding: "12px 16px", background: daysToBreak <= 60 ? "#FEF3C7" : "#F0FDF4", border: `1px solid ${daysToBreak <= 60 ? "#FDE68A" : "#BBF7D0"}`, borderRadius: 10, fontSize: 13 }}>
+                  <p style={{ fontWeight: 600, color: daysToBreak <= 60 ? "#92400E" : "#065F46", marginBottom: 2 }}>
+                    Break clause: {daysToBreak < 0 ? "Passed" : `Available in ${daysToBreak} days`} ({breakDate.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })})
+                  </p>
+                  {te.break_clause_notice_months && (
+                    <p style={{ color: "#6B7280" }}>{te.break_clause_notice_months}-month notice required.{daysToBreak > 0 && ` Serve notice by ${new Date(breakDate - te.break_clause_notice_months * 30 * 86400000).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })}.`}</p>
+                  )}
+                </div>
+              )}
+
+              {/* Deposit */}
+              {p.deposit_amount > 0 && (
+                <div style={{ padding: "14px 16px", background: depositOverCap ? "#FEE2E2" : "#F0FDF4", border: `1px solid ${depositOverCap ? "#FECACA" : "#BBF7D0"}`, borderRadius: 10, fontSize: 13 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+                    <div>
+                      <p style={{ fontWeight: 600, color: depositOverCap ? "#991B1B" : "#065F46", marginBottom: 2 }}>
+                        Deposit: {fmt(p.deposit_amount)}{te.deposit_scheme ? ` — protected with ${te.deposit_scheme}` : ""}
+                      </p>
+                      {fiveWeeksCap && (
+                        <p style={{ color: "#6B7280" }}>
+                          {depositOverCap
+                            ? `Exceeds the 5-week legal cap of ${fmt(fiveWeeksCap)} — check compliance.`
+                            : `Within the 5-week cap (${fmt(fiveWeeksCap)}).`}
+                        </p>
+                      )}
+                    </div>
+                    {!te.deposit_scheme && (
+                      <span style={{ fontSize: 12, background: "#FEF3C7", color: "#92400E", padding: "3px 10px", borderRadius: 20, fontWeight: 500 }}>Scheme not recorded</span>
+                    )}
+                  </div>
+                </div>
               )}
             </div>
-          </div>
-        )}
+          );
+        })()}
 
         {/* What-If Scenarios */}
         <div style={CARD}>
@@ -439,6 +577,180 @@ export default function PropertyDetail() {
             </div>
           )}
         </div>
+
+        {/* ── Expenses & Invoices ── */}
+        {(() => {
+          const CATEGORY_LABELS = {
+            repairs_maintenance: "Repairs & Maintenance",
+            gas_safety: "Gas Safety Cert",
+            eicr: "EICR",
+            epc: "EPC",
+            insurance: "Insurance",
+            ground_rent: "Ground Rent",
+            service_charge: "Service Charge",
+            professional_fees: "Professional Fees",
+            letting_agent: "Letting Agent",
+            cleaning: "Cleaning / Inventory",
+            furniture_appliances: "Furniture & Appliances",
+            other: "Other",
+          };
+
+          const currentYear = new Date().getFullYear();
+          const taxYearStart = new Date().getMonth() >= 3 ? new Date(currentYear, 3, 6) : new Date(currentYear - 1, 3, 6);
+          const calendarYearTotal = expenses.filter((e) => e.expense_date && new Date(e.expense_date).getFullYear() === currentYear).reduce((s, e) => s + (e.amount || 0), 0);
+          const taxYearTotal = expenses.filter((e) => e.expense_date && new Date(e.expense_date) >= taxYearStart).reduce((s, e) => s + (e.amount || 0), 0);
+
+          const fileInputRef = { current: null };
+
+          return (
+            <div style={{ ...CARD, padding: 0, overflow: "hidden" }}>
+              <button
+                onClick={() => { setExpensesOpen((o) => !o); if (!expensesOpen) fetchExpenses(); }}
+                style={{ width: "100%", padding: "20px 28px", background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 15, fontWeight: 600, color: "#374151" }}
+              >
+                <span>Maintenance & Expenses</span>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, color: "#6B7280" }}>
+                  {expenses.length > 0 && <span style={{ fontSize: 13, fontWeight: 400 }}>{expenses.length} record{expenses.length !== 1 ? "s" : ""} · {fmt(expenses.reduce((s, e) => s + (e.amount || 0), 0))} total</span>}
+                  {expensesOpen ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+                </div>
+              </button>
+
+              {expensesOpen && (
+                <div style={{ borderTop: "1px solid #F3F4F6", padding: 28 }}>
+
+                  {/* Summary row */}
+                  {expenses.length > 0 && (
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 24 }}>
+                      {[
+                        { label: "Calendar year total", value: fmt(Math.round(calendarYearTotal)) },
+                        { label: "Tax year total (from Apr)", value: fmt(Math.round(taxYearTotal)) },
+                        { label: "Monthly average", value: fmt(Math.round(expenses.reduce((s, e) => s + (e.amount || 0), 0) / Math.max(1, expenses.length))) },
+                      ].map((s, i) => (
+                        <div key={i} style={{ background: "#F9FAFB", borderRadius: 12, padding: "14px 16px" }}>
+                          <p style={{ fontSize: 11, color: "#6B7280", marginBottom: 4 }}>{s.label}</p>
+                          <p style={{ fontSize: 20, fontWeight: 700 }}>{s.value}</p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Upload invoice */}
+                  <div style={{ marginBottom: 20 }}>
+                    <p style={{ fontSize: 14, fontWeight: 600, marginBottom: 10 }}>Add Expense</p>
+                    {!expensePreview && !expensesParsing && (
+                      <label style={{ display: "flex", alignItems: "center", gap: 10, padding: "14px 18px", background: "#F5F3FF", border: "2px dashed #C7D2FE", borderRadius: 12, cursor: "pointer", fontSize: 14, color: "#6366F1", fontWeight: 500 }}>
+                        <Upload size={18} />
+                        Upload invoice / receipt (PDF or image) — Claude will extract the details
+                        <input type="file" accept=".pdf,image/*" style={{ display: "none" }} onChange={(e) => { if (e.target.files[0]) handleInvoiceUpload(e.target.files[0]); e.target.value = ""; }} />
+                      </label>
+                    )}
+
+                    {expensesParsing && (
+                      <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "14px 18px", background: "#F5F3FF", borderRadius: 12, fontSize: 14, color: "#6366F1" }}>
+                        <Loader size={18} style={{ animation: "spin 1s linear infinite" }} /> Extracting invoice details...
+                      </div>
+                    )}
+
+                    {expensePreview && (
+                      <div style={{ background: "#F9FAFB", border: "1px solid #E5E7EB", borderRadius: 12, padding: 20 }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+                          <p style={{ fontWeight: 600, fontSize: 14 }}>Extracted — confirm details</p>
+                          <button onClick={() => setExpensePreview(null)} style={{ background: "none", border: "none", cursor: "pointer", color: "#6B7280" }}><X size={16} /></button>
+                        </div>
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
+                          {[
+                            { label: "Supplier", key: "supplier", type: "text" },
+                            { label: "Date", key: "invoice_date", type: "date" },
+                            { label: "Amount (£)", key: "amount", type: "number" },
+                            { label: "Invoice No.", key: "invoice_number", type: "text" },
+                          ].map(({ label, key, type }) => (
+                            <div key={key}>
+                              <label style={{ fontSize: 11, color: "#6B7280", display: "block", marginBottom: 4 }}>{label}</label>
+                              <input
+                                type={type}
+                                value={expensePreview[key] ?? ""}
+                                onChange={(e) => setExpensePreview((p) => ({ ...p, [key]: type === "number" ? parseFloat(e.target.value) || "" : e.target.value }))}
+                                style={{ width: "100%", padding: "8px 12px", border: "1px solid #D1D5DB", borderRadius: 8, fontSize: 14, boxSizing: "border-box" }}
+                              />
+                            </div>
+                          ))}
+                        </div>
+                        <div style={{ marginBottom: 16 }}>
+                          <label style={{ fontSize: 11, color: "#6B7280", display: "block", marginBottom: 4 }}>Description</label>
+                          <input
+                            type="text"
+                            value={expensePreview.description ?? ""}
+                            onChange={(e) => setExpensePreview((p) => ({ ...p, description: e.target.value }))}
+                            style={{ width: "100%", padding: "8px 12px", border: "1px solid #D1D5DB", borderRadius: 8, fontSize: 14, boxSizing: "border-box" }}
+                          />
+                        </div>
+                        <div style={{ marginBottom: 16 }}>
+                          <label style={{ fontSize: 11, color: "#6B7280", display: "block", marginBottom: 4 }}>Category</label>
+                          <select
+                            value={expensePreview.category || "other"}
+                            onChange={(e) => setExpensePreview((p) => ({ ...p, category: e.target.value }))}
+                            style={{ width: "100%", padding: "8px 12px", border: "1px solid #D1D5DB", borderRadius: 8, fontSize: 14, background: "white" }}
+                          >
+                            {Object.entries(CATEGORY_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                          </select>
+                        </div>
+                        {expenseError && <p style={{ color: "#EF4444", fontSize: 13, marginBottom: 10 }}>{expenseError}</p>}
+                        <button
+                          onClick={handleSaveExpense}
+                          disabled={savingExpense}
+                          style={{ padding: "10px 24px", background: "linear-gradient(135deg, #6366F1, #4F46E5)", color: "white", border: "none", borderRadius: 10, fontSize: 14, fontWeight: 600, cursor: "pointer" }}
+                        >
+                          {savingExpense ? "Saving..." : "Add Expense"}
+                        </button>
+                      </div>
+                    )}
+                    {expenseError && !expensePreview && <p style={{ color: "#EF4444", fontSize: 13, marginTop: 8 }}>{expenseError}</p>}
+                  </div>
+
+                  {/* Expense list */}
+                  {expenses.length > 0 && (
+                    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
+                      <thead>
+                        <tr style={{ background: "#F9FAFB" }}>
+                          <th style={{ padding: "9px 12px", textAlign: "left", fontWeight: 600, borderBottom: "1px solid #E5E7EB", fontSize: 12, color: "#6B7280" }}>Date</th>
+                          <th style={{ padding: "9px 12px", textAlign: "left", fontWeight: 600, borderBottom: "1px solid #E5E7EB", fontSize: 12, color: "#6B7280" }}>Supplier</th>
+                          <th style={{ padding: "9px 12px", textAlign: "left", fontWeight: 600, borderBottom: "1px solid #E5E7EB", fontSize: 12, color: "#6B7280" }}>Category</th>
+                          <th style={{ padding: "9px 12px", textAlign: "right", fontWeight: 600, borderBottom: "1px solid #E5E7EB", fontSize: 12, color: "#6B7280" }}>Amount</th>
+                          <th style={{ padding: "9px 12px", borderBottom: "1px solid #E5E7EB" }}></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {expenses.map((e) => (
+                          <tr key={e.id} style={{ borderBottom: "1px solid #F3F4F6" }}>
+                            <td style={{ padding: "10px 12px", color: "#6B7280" }}>{e.expense_date ? new Date(e.expense_date).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "—"}</td>
+                            <td style={{ padding: "10px 12px" }}>
+                              <p style={{ fontWeight: 500 }}>{e.supplier || "—"}</p>
+                              {e.description && <p style={{ fontSize: 12, color: "#9CA3AF", marginTop: 2 }}>{e.description}</p>}
+                            </td>
+                            <td style={{ padding: "10px 12px" }}>
+                              <span style={{ padding: "2px 8px", background: "#EEF2FF", color: "#6366F1", borderRadius: 20, fontSize: 12 }}>
+                                {CATEGORY_LABELS[e.category] || e.category}
+                              </span>
+                            </td>
+                            <td style={{ padding: "10px 12px", textAlign: "right", fontWeight: 600 }}>{fmt(e.amount)}</td>
+                            <td style={{ padding: "10px 12px", textAlign: "right" }}>
+                              <button onClick={() => handleDeleteExpense(e.id)} style={{ background: "none", border: "none", cursor: "pointer", color: "#EF4444", padding: 4 }}><Trash2 size={13} /></button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+
+                  {expenses.length === 0 && !expensePreview && !expensesParsing && (
+                    <p style={{ fontSize: 13, color: "#9CA3AF", textAlign: "center", padding: "20px 0" }}>No expenses recorded yet. Upload an invoice above to get started.</p>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })()}
+
       </div>
     </div>
   );

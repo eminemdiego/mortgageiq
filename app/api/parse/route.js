@@ -37,7 +37,8 @@ Return ONLY a valid JSON object (no markdown, no explanation, just raw JSON):
   "originalTerm": number or null,
   "propertyAddress": string or null,
   "isIslamicFinance": boolean,
-  "statementDate": string or null
+  "statementDate": string or null,
+  "propertyCategory": string
 }
 
 Field rules:
@@ -57,6 +58,7 @@ Field rules:
 - originalTerm: original mortgage term in years (number), or null
 - propertyAddress: full property address if shown on the statement, or null
 - isIslamicFinance: true if this is an Islamic finance/HPP product, false otherwise
+- propertyCategory: classify this mortgage. Return exactly one of: "residential" (owner-occupied home, principal residence), "buy_to_let" (investment property, rental property — look for: "buy to let", "BTL", "rental income", "investment property", "let to buy", "assured shorthold tenancy", "AST" mentioned in the mortgage document, or known BTL-only lenders like The Mortgage Works, Paragon, Landbay, Fleet Mortgages, Kent Reliance, Aldermore BTL), "commercial" (business premises — look for: "commercial mortgage", "commercial property", "business premises", "office", "retail", "warehouse"), or "unclear" (cannot determine). Default to "residential" for Islamic finance home purchase plans from Gatehouse Bank, Al Rayan, etc. Default to "residential" if there are no BTL/commercial signals.
 
 If a field cannot be found, use null. Never guess or invent values.`;
 
@@ -221,6 +223,7 @@ export async function POST(request) {
       propertyAddress:      extractedData.propertyAddress || "",
       isIslamicFinance:     extractedData.isIslamicFinance || false,
       statementDate:        extractedData.statementDate || null,
+      propertyCategory:     extractedData.propertyCategory || "unclear",
     });
   } catch (error) {
     console.error("Parse API unexpected error:", error);

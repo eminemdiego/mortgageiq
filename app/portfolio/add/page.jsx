@@ -340,6 +340,17 @@ export default function AddProperty() {
     if (!payload.address?.trim()) { setError("Property address is required."); return; }
     if (!payload.monthly_rent) { setError("Monthly rent is required."); return; }
 
+    // Package extra tenancy fields into JSONB (no matching DB columns)
+    const extraTenancyKeys = ["break_clause_date", "break_clause_notice_months", "deposit_scheme", "pet_clause", "notice_period_months", "permitted_occupants"];
+    const tenancyExtras = {};
+    extraTenancyKeys.forEach((k) => {
+      if (payload[k] != null && payload[k] !== "") {
+        tenancyExtras[k] = payload[k];
+        delete payload[k];
+      }
+    });
+    if (Object.keys(tenancyExtras).length > 0) payload.tenancy_extras = tenancyExtras;
+
     setError("");
     setSaving(true);
     try {
