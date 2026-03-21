@@ -815,11 +815,62 @@ function ResultsDashboard({ analysis, form, parsedData, extraPayment, setExtraPa
 
   const [aiRecs, setAiRecs] = useState(null);
   const [aiLoading, setAiLoading] = useState(true);
+  const [lumpSum, setLumpSum] = useState("");
+  const [remortgageFee, setRemortgageFee] = useState("");
+  const [customRemortgageRate, setCustomRemortgageRate] = useState("");
 
   const { current, withExtra, targetPayment, targetAmort, rateScenarios, overpaymentScenarios, maxMonthlyOverpayment, maxAnnualOverpayment, balance, tenYears } = analysis;
   const currentYears = (current.totalMonths / 12).toFixed(1);
   const isIslamicFinance = parsedData?.isIslamicFinance || false;
   const interestLabel = isIslamicFinance ? "rental payments" : "interest";
+
+  // Progress through mortgage
+  const origLoan = parseFloat(form.originalLoanAmount) || null;
+  const pctPaid = origLoan ? Math.min(100, Math.round((1 - balance / origLoan) * 100)) : null;
+
+  // Lump sum calculations
+  const lumpSumNum = parseFloat(lumpSum) || 0;
+  const lumpSumAnalysis = lumpSumNum > 0 ? (() => {
+    const rate = parseFloat(form.interestRate);
+    const pmt = parseFloat(form.monthlyPayment);
+    const yrs = parseFloat(form.remainingYears);
+    const newBalance = Math.max(0, balance - lumpSumNum);
+    const withLump = buildAmortization(newBalance, rate, pmt);
+    const monthsSaved = current.totalMonths - withLump.totalMonths;
+    const interestSaved = current.totalInterest - withLump.totalInterest;
+    // Investment comparison: lump sum at 7% annualised for remaining term
+    const investYears = yrs;
+    const investGrowth = lumpSumNum * Math.pow(1.07, investYears);
+    return { monthsSaved, interestSaved, withLump, investGrowth: Math.round(investGrowth), investYears };
+  })() : null;
+
+  // Remortgage comparison
+  const remortgageScenarios = (() => {
+    const rate = parseFloat(form.interestRate);
+    const pmt = parseFloat(form.monthlyPayment);
+    const yrs = parseFloat(form.remainingYears);
+    const fee = parseFloat(remortgageFee) || 0;
+    const cuts = [-1.5, -1, -0.5];
+    const customR = parseFloat(customRemortgageRate);
+    const allCuts = customR && customR > 0 ? [...cuts, -(rate - customR)] : cuts;
+    return allCuts.map((cut) => {
+      const newRate = Math.max(0.1, rate + cut);
+      const newPmt = calcMonthlyPayment(balance, newRate, yrs);
+      const monthlySaving = Math.round(pmt - newPmt);
+      const amort = buildAmortization(balance, newRate, newPmt);
+      const totalInterestSaving = current.totalInterest - amort.totalInterest;
+      const breakEvenMonths = monthlySaving > 0 && fee > 0 ? Math.ceil(fee / monthlySaving) : 0;
+      return {
+        label: cut === -(rate - customR) ? `Custom (${newRate.toFixed(2)}%)` : `${newRate.toFixed(2)}% (${cut > 0 ? "+" : ""}${cut}%)`,
+        newRate: newRate.toFixed(2),
+        newPmt: Math.round(newPmt),
+        monthlySaving,
+        annualSaving: monthlySaving * 12,
+        totalInterestSaving: Math.round(totalInterestSaving),
+        breakEvenMonths,
+      };
+    });
+  })();
 
   useEffect(() => {
     setAiLoading(true);
@@ -1023,6 +1074,22 @@ function ResultsDashboard({ analysis, form, parsedData, extraPayment, setExtraPa
               </div>
             ))}
           </div>
+
+          {pctPaid !== null && (
+            <div style={{ marginTop: 24, paddingTop: 20, borderTop: "1px solid #F3F4F6" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
+                <span style={{ fontSize: 13, fontWeight: 600, color: "#111" }}>Mortgage Progress</span>
+                <span style={{ fontSize: 13, fontWeight: 700, color: "#6366F1" }}>{pctPaid}% paid off</span>
+              </div>
+              <div style={{ height: 12, background: "#EEF2FF", borderRadius: 99, overflow: "hidden" }}>
+                <div style={{ height: "100%", width: `${pctPaid}%`, background: "linear-gradient(90deg, #6366F1, #10B981)", borderRadius: 99, transition: "width 0.6s ease" }} />
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", marginTop: 6 }}>
+                <span style={{ fontSize: 11, color: "#9CA3AF" }}>{fmt(origLoan - balance)} repaid</span>
+                <span style={{ fontSize: 11, color: "#9CA3AF" }}>{fmt(balance)} remaining</span>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Pay Off 10 Years Sooner Hero Banner */}
@@ -1168,6 +1235,82 @@ function ResultsDashboard({ analysis, form, parsedData, extraPayment, setExtraPa
               </p>
             </div>
           )}
+        </Card>
+
+        {/* Lump Sum Impact */}
+        <Card title="Lump Sum Payment Impact" subtitle="See how a one-off payment reduces your term — and how it compares to investing">
+          <div style={{ display: "flex", gap: 12, alignItems: "flex-end", marginBottom: 16 }}>
+            <div style={{ flex: 1 }}>
+              <FormField value={lumpSum} onChange={setLumpSum} prefix="£" placeholder="e.g. 10000" label="One-off lump sum amount" />
+            </div>
+          </div>
+          {lumpSumAnalysis ? (
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }} className="grid-cols-2">
+              <div style={{ padding: "20px", background: "#ECFDF5", borderRadius: 12, border: "1px solid #A7F3D0" }}>
+                <p style={{ fontSize: 12, color: "#065F46", fontWeight: 600, margin: "0 0 12px", textTransform: "uppercase", letterSpacing: 0.5 }}>Pay Down Mortgage</p>
+                <p style={{ margin: "0 0 6px", fontSize: 22, fontWeight: 700, color: "#065F46" }}>
+                  {lumpSumAnalysis.monthsSaved > 0
+                    ? `${Math.floor(lumpSumAnalysis.monthsSaved / 12)}y ${lumpSumAnalysis.monthsSaved % 12}m sooner`
+                    : "No term change"}
+                </p>
+                <p style={{ margin: 0, fontSize: 13, color: "#047857" }}>
+                  Saves {fmt(Math.round(lumpSumAnalysis.interestSaved))} in {isIslamicFinance ? "rental charges" : "interest"}
+                </p>
+                <p style={{ margin: "6px 0 0", fontSize: 12, color: "#6EE7B7" }}>
+                  New payoff: {lumpSumAnalysis.withLump.totalMonths > 0 ? `${(lumpSumAnalysis.withLump.totalMonths / 12).toFixed(1)} years` : "Paid off!"}
+                </p>
+              </div>
+              <div style={{ padding: "20px", background: "#EEF2FF", borderRadius: 12, border: "1px solid #C7D2FE" }}>
+                <p style={{ fontSize: 12, color: "#312E81", fontWeight: 600, margin: "0 0 12px", textTransform: "uppercase", letterSpacing: 0.5 }}>Invest Instead (7% p.a.)</p>
+                <p style={{ margin: "0 0 6px", fontSize: 22, fontWeight: 700, color: "#312E81" }}>
+                  {fmt(lumpSumAnalysis.investGrowth)}
+                </p>
+                <p style={{ margin: 0, fontSize: 13, color: "#4338CA" }}>
+                  After {lumpSumAnalysis.investYears} years at 7% annual return
+                </p>
+                <p style={{ margin: "6px 0 0", fontSize: 12, color: "#818CF8" }}>
+                  Gain: {fmt(lumpSumAnalysis.investGrowth - lumpSumNum)} vs {fmt(Math.round(lumpSumAnalysis.interestSaved))} saved
+                </p>
+              </div>
+            </div>
+          ) : (
+            <p style={{ fontSize: 13, color: "#9CA3AF", margin: 0 }}>Enter an amount above to see the impact.</p>
+          )}
+        </Card>
+
+        {/* Remortgage Comparison */}
+        <Card title="Remortgage Comparison" subtitle="How much could you save by switching to a better rate?">
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 20 }} className="grid-cols-2">
+            <FormField value={customRemortgageRate} onChange={setCustomRemortgageRate} suffix="%" placeholder="e.g. 3.5" label="Custom new rate" />
+            <FormField value={remortgageFee} onChange={setRemortgageFee} prefix="£" placeholder="e.g. 1500" label="Remortgage fee (for break-even)" />
+          </div>
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
+              <thead>
+                <tr style={{ borderBottom: "2px solid #E5E7EB" }}>
+                  {["New Rate", "Monthly Payment", "Monthly Saving", "Annual Saving", "Total Interest Saving", "Break-even"].map((h) => (
+                    <th key={h} style={{ textAlign: "left", padding: "10px 12px", color: "#666", fontWeight: 500, fontSize: 12 }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {remortgageScenarios.map((s, i) => (
+                  <tr key={i} style={{ borderBottom: "1px solid #F3F4F6", background: i % 2 === 0 ? "white" : "#FAFAFA" }}>
+                    <td style={{ padding: 12, fontWeight: 600 }}>{s.label}</td>
+                    <td style={{ padding: 12 }}>{fmt(s.newPmt)}/mo</td>
+                    <td style={{ padding: 12, color: "#10B981", fontWeight: 600 }}>
+                      {s.monthlySaving > 0 ? `${fmt(s.monthlySaving)}/mo` : <span style={{ color: "#EF4444" }}>{fmt(Math.abs(s.monthlySaving))} more</span>}
+                    </td>
+                    <td style={{ padding: 12, color: "#10B981", fontWeight: 600 }}>{s.annualSaving > 0 ? fmt(s.annualSaving) : "—"}</td>
+                    <td style={{ padding: 12, color: "#6366F1", fontWeight: 600 }}>{fmt(s.totalInterestSaving)}</td>
+                    <td style={{ padding: 12, fontSize: 13, color: "#666" }}>
+                      {s.breakEvenMonths > 0 ? `${s.breakEvenMonths} months` : parseFloat(remortgageFee) > 0 ? "Instant" : "—"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </Card>
 
         {/* Rate scenarios */}
