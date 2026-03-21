@@ -94,6 +94,13 @@ html {
 .money-float-11 { animation: floatSlow  8.5s ease-in-out infinite 0.5s; }
 .money-float-12 { animation: floatWobble 10.5s ease-in-out infinite 3.5s; }
 
+/* ─── Print styles ──────────────────────────────────────────────────────────── */
+
+@media print {
+  .no-print { display: none !important; }
+  body { background: white; }
+}
+
 /* ─── Responsive tweaks ─────────────────────────────────────────────────────── */
 
 @media (max-width: 768px) {

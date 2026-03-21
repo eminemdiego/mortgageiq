@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useSession, signOut } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import {
@@ -229,11 +229,30 @@ export default function MortgageAnalyzer() {
         };
       });
 
+    // "Pay off 10 years sooner" calculation
+    const tenYearsTarget = Math.max(years - 10, 1);
+    const tenYearsPayment = calcMonthlyPayment(balance, rate, tenYearsTarget);
+    const tenYearsAmort = buildAmortization(balance, rate, tenYearsPayment);
+    const tenYearsExtra = Math.round(tenYearsPayment - payment);
+    const tenYearsInterestSaved = current.totalInterest - tenYearsAmort.totalInterest;
+    const tenYearsWithinLimit = tenYearsExtra <= maxMonthlyOverpayment;
+    const tenYearsMaxAllowedAmort = buildAmortization(balance, rate, payment, maxMonthlyOverpayment);
+    const tenYearsMaxYearsSaved = ((current.totalMonths - tenYearsMaxAllowedAmort.totalMonths) / 12).toFixed(1);
+
     return {
       current, withExtra, targetPayment, targetAmort,
       rateScenarios, overpaymentScenarios,
       maxMonthlyOverpayment, maxAnnualOverpayment,
       currentMonthlyPayment: payment, interestRate: rate, balance,
+      tenYears: {
+        targetYears: tenYearsTarget,
+        payment: tenYearsPayment,
+        extra: tenYearsExtra,
+        interestSaved: tenYearsInterestSaved,
+        withinLimit: tenYearsWithinLimit,
+        maxYearsSaved: tenYearsMaxYearsSaved,
+        maxInterestSaved: current.totalInterest - tenYearsMaxAllowedAmort.totalInterest,
+      },
     };
   }, [form, extraPayment, targetYears]);
 
@@ -255,6 +274,7 @@ export default function MortgageAnalyzer() {
       <ResultsDashboard
         analysis={analysis}
         form={form}
+        parsedData={parsedData}
         extraPayment={extraPayment}
         setExtraPayment={setExtraPayment}
         targetYears={targetYears}
@@ -782,7 +802,7 @@ function FormField({ label, value, onChange, placeholder, prefix, suffix, requir
    RESULTS DASHBOARD
    ═══════════════════════════════════════════════════════════════════════════════ */
 
-function ResultsDashboard({ analysis, form, extraPayment, setExtraPayment, targetYears, setTargetYears, onBack }) {
+function ResultsDashboard({ analysis, form, parsedData, extraPayment, setExtraPayment, targetYears, setTargetYears, onBack }) {
   const { data: session } = useSession();
   const router = useRouter();
   const [saving, setSaving] = useState(false);
@@ -793,8 +813,56 @@ function ResultsDashboard({ analysis, form, extraPayment, setExtraPayment, targe
   const [emailSent, setEmailSent] = useState(false);
   const [emailError, setEmailError] = useState("");
 
-  const { current, withExtra, targetPayment, targetAmort, rateScenarios, overpaymentScenarios, maxMonthlyOverpayment, maxAnnualOverpayment, balance } = analysis;
+  const [aiRecs, setAiRecs] = useState(null);
+  const [aiLoading, setAiLoading] = useState(true);
+
+  const { current, withExtra, targetPayment, targetAmort, rateScenarios, overpaymentScenarios, maxMonthlyOverpayment, maxAnnualOverpayment, balance, tenYears } = analysis;
   const currentYears = (current.totalMonths / 12).toFixed(1);
+  const isIslamicFinance = parsedData?.isIslamicFinance || false;
+  const interestLabel = isIslamicFinance ? "rental payments" : "interest";
+
+  useEffect(() => {
+    setAiLoading(true);
+    fetch("/api/report", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        balance: form.outstandingBalance,
+        payment: form.monthlyPayment,
+        rate: form.interestRate,
+        years: form.remainingYears,
+        bank: form.bank,
+        mortgageType: form.mortgageType,
+        rateType: form.rateType,
+        fixedUntil: form.fixedUntil,
+        earlyRepaymentCharge: form.earlyRepaymentCharge,
+        overpaymentAllowance: form.overpaymentAllowance,
+        originalLoanAmount: form.originalLoanAmount,
+        originalTerm: form.originalTerm,
+        isIslamicFinance: parsedData?.isIslamicFinance || false,
+        revertingTo: parsedData?.revertingTo || "",
+        ercEndDate: parsedData?.ercEndDate || "",
+        propertyAddress: parsedData?.propertyAddress || "",
+        totalInterest: current.totalInterest,
+        maxMonthlyOverpayment,
+        maxAnnualOverpayment,
+        tenYearsExtra: tenYears.extra,
+        tenYearsInterestSaved: tenYears.interestSaved,
+        tenYearsWithinLimit: tenYears.withinLimit,
+        tenYearsMaxYearsSaved: tenYears.maxYearsSaved,
+        tenYearsMaxInterestSaved: tenYears.maxInterestSaved,
+      }),
+    })
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.recommendations && Array.isArray(data.recommendations)) {
+          setAiRecs(data.recommendations);
+        }
+      })
+      .catch((err) => console.error("AI recs fetch error:", err))
+      .finally(() => setAiLoading(false));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleSaveAnalysis = async () => {
     if (!session?.user?.id) {
@@ -913,6 +981,105 @@ function ResultsDashboard({ analysis, form, extraPayment, setExtraPayment, targe
             <p style={{ fontSize: 13, color: "#A16207", margin: 0 }}>That's on top of your {fmt(balance)} balance. Read on to see how you can significantly reduce this.</p>
           </div>
         </div>
+
+        {/* Mortgage Summary Card */}
+        <div style={{ background: "white", border: "1px solid #E5E7EB", borderRadius: 16, padding: 28, marginBottom: 24 }}>
+          <h3 style={{ fontSize: 18, fontWeight: 600, marginBottom: 20 }}>Your Mortgage at a Glance</h3>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 20 }} className="grid-cols-4">
+            {[
+              { label: "Lender", value: form.bank || "—" },
+              { label: "Property", value: parsedData?.propertyAddress || "—" },
+              {
+                label: "Mortgage Type",
+                value: (
+                  <span style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                    {form.mortgageType}
+                    {isIslamicFinance && (
+                      <span style={{ background: "#FEF3C7", border: "1px solid #FDE68A", borderRadius: 20, padding: "2px 8px", fontSize: 11, color: "#92400E", fontWeight: 600 }}>
+                        Islamic Finance
+                      </span>
+                    )}
+                  </span>
+                ),
+              },
+              { label: "Rate Type", value: form.rateType || "—" },
+              { label: "Outstanding Balance", value: fmt(balance) },
+              { label: "Original Loan", value: form.originalLoanAmount ? fmt(parseFloat(form.originalLoanAmount)) : "—" },
+              { label: "Monthly Payment", value: fmt(Math.round(parseFloat(form.monthlyPayment))) },
+              { label: "Remaining Term", value: form.remainingYears ? form.remainingYears + " years" : "—" },
+              { label: "Current Rate", value: form.interestRate ? form.interestRate + "%" : "—" },
+              { label: "Fixed Until", value: form.fixedUntil || "—" },
+              { label: "Reverts To", value: parsedData?.revertingTo || "—" },
+              {
+                label: "ERC",
+                value: form.earlyRepaymentCharge
+                  ? `${form.earlyRepaymentCharge}% until ${parsedData?.ercEndDate || "end of fixed period"}`
+                  : "None",
+              },
+            ].map((item, i) => (
+              <div key={i}>
+                <p style={{ fontSize: 12, color: "#9CA3AF", fontWeight: 500, marginBottom: 4, margin: "0 0 4px" }}>{item.label}</p>
+                <p style={{ fontSize: 14, fontWeight: 600, color: "#111", margin: 0 }}>{item.value}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Pay Off 10 Years Sooner Hero Banner */}
+        <div style={{ background: "linear-gradient(135deg, #6366F1, #4338CA)", borderRadius: 16, padding: 28, marginBottom: 24, color: "white" }}>
+          <h3 style={{ fontSize: 22, fontWeight: 700, marginBottom: 8, margin: "0 0 8px" }}>
+            Pay off your mortgage 10 years sooner
+          </h3>
+          <p style={{ fontSize: 15, opacity: 0.9, marginBottom: 20, margin: "0 0 20px" }}>
+            Pay an extra {fmt(tenYears.extra)}/month → save {fmt(tenYears.interestSaved)} in {isIslamicFinance ? "rental charges" : "interest"}
+          </p>
+          {tenYears.withinLimit ? (
+            <div style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "rgba(16,185,129,0.25)", border: "1px solid rgba(16,185,129,0.4)", borderRadius: 20, padding: "6px 14px", fontSize: 13, fontWeight: 600, marginBottom: 20 }}>
+              ✓ Within your penalty-free allowance
+            </div>
+          ) : (
+            <div style={{ background: "rgba(245,158,11,0.2)", border: "1px solid rgba(245,158,11,0.4)", borderRadius: 12, padding: "12px 16px", marginBottom: 20, fontSize: 13, lineHeight: 1.5 }}>
+              ⚠ Your overpayment allowance is {fmt(maxMonthlyOverpayment)}/month. At that rate you'd save {tenYears.maxYearsSaved} years and {fmt(tenYears.maxInterestSaved)}
+            </div>
+          )}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, maxWidth: 360 }}>
+            <div style={{ background: "rgba(255,255,255,0.15)", borderRadius: 12, padding: "16px 20px" }}>
+              <p style={{ margin: "0 0 4px", fontSize: 12, opacity: 0.8 }}>Extra per month</p>
+              <p style={{ margin: 0, fontSize: 22, fontWeight: 700 }}>{fmt(tenYears.extra)}</p>
+            </div>
+            <div style={{ background: "rgba(255,255,255,0.15)", borderRadius: 12, padding: "16px 20px" }}>
+              <p style={{ margin: "0 0 4px", fontSize: 12, opacity: 0.8 }}>Total saved</p>
+              <p style={{ margin: 0, fontSize: 22, fontWeight: 700 }}>{fmt(tenYears.interestSaved)}</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Remortgage Alert */}
+        {form.fixedUntil && (
+          <div style={{ background: "linear-gradient(135deg, #FEF3C7, #FDE68A)", borderRadius: 16, padding: 24, marginBottom: 24, border: "1px solid #FCD34D" }}>
+            <div style={{ display: "flex", alignItems: "flex-start", gap: 14 }}>
+              <AlertTriangle size={22} color="#D97706" style={{ flexShrink: 0, marginTop: 2 }} />
+              <div>
+                <p style={{ fontWeight: 700, color: "#92400E", margin: "0 0 6px", fontSize: 15 }}>
+                  Your fixed rate ends {form.fixedUntil}
+                </p>
+                {parsedData?.revertingTo && (
+                  <p style={{ color: "#A16207", margin: "0 0 6px", fontSize: 13 }}>
+                    It will revert to {parsedData.revertingTo} — typically 1.5–2% higher than competitive rates.
+                  </p>
+                )}
+                <p style={{ color: "#A16207", margin: "0 0 6px", fontSize: 13 }}>
+                  Start comparing deals 3–6 months before your end date to avoid paying more.
+                </p>
+                {form.earlyRepaymentCharge && (
+                  <p style={{ color: "#92400E", margin: 0, fontSize: 13, fontWeight: 500 }}>
+                    Note: {form.earlyRepaymentCharge}% ERC applies until {parsedData?.ercEndDate || "end of fixed period"}.
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Balance chart */}
         <Card title="Balance Over Time" subtitle="How your mortgage balance decreases year by year">
@@ -1042,11 +1209,73 @@ function ResultsDashboard({ analysis, form, extraPayment, setExtraPayment, targe
           </div>
         </Card>
 
+        {/* Risk Assessment */}
+        <Card title="Risk Assessment" subtitle="How vulnerable is your mortgage to changes?">
+          {(() => {
+            const rate = parseFloat(form.interestRate);
+            const years = parseFloat(form.remainingYears);
+            const payment = parseFloat(form.monthlyPayment);
+            const risePayment = Math.round(calcMonthlyPayment(balance, rate + 2, years));
+            const riseDiff = risePayment - Math.round(payment);
+            const affordRatio = (payment / 3500 * 100).toFixed(0);
+            const affordColor = affordRatio < 30 ? "#10B981" : affordRatio <= 40 ? "#F59E0B" : "#EF4444";
+            const riseColor = riseDiff > 200 ? "#EF4444" : "#F59E0B";
+            return (
+              <div style={{ display: "grid", gap: 16 }}>
+                <div style={{ padding: "16px 20px", background: "#FEF2F2", borderRadius: 12, borderLeft: `4px solid ${riseColor}` }}>
+                  <p style={{ fontWeight: 600, margin: "0 0 4px", color: "#111", fontSize: 14 }}>Rate Rise Vulnerability</p>
+                  <p style={{ margin: 0, fontSize: 13, color: "#444" }}>
+                    If rates rose 2%, your monthly payment would increase by{" "}
+                    <span style={{ fontWeight: 700, color: riseColor }}>{fmt(riseDiff)}</span>
+                    {" "}(to {fmt(risePayment)}/month).
+                  </p>
+                </div>
+                <div style={{ padding: "16px 20px", background: "#F9FAFB", borderRadius: 12, borderLeft: `4px solid ${affordColor}` }}>
+                  <p style={{ fontWeight: 600, margin: "0 0 4px", color: "#111", fontSize: 14 }}>Affordability Ratio</p>
+                  <p style={{ margin: 0, fontSize: 13, color: "#444" }}>
+                    Your mortgage payment is{" "}
+                    <span style={{ fontWeight: 700, color: affordColor }}>{affordRatio}%</span>
+                    {" "}of average UK household monthly income (£3,500).
+                    {affordRatio < 30 ? " This is within a comfortable range." : affordRatio <= 40 ? " This is on the higher side — worth monitoring." : " This is above the recommended 40% threshold."}
+                  </p>
+                </div>
+                <div style={{ padding: "16px 20px", background: "#ECFDF5", borderRadius: 12, borderLeft: "4px solid #10B981" }}>
+                  <p style={{ fontWeight: 600, margin: "0 0 4px", color: "#111", fontSize: 14 }}>Overpayment Impact</p>
+                  <p style={{ margin: 0, fontSize: 13, color: "#444" }}>
+                    Paying the maximum {fmt(maxMonthlyOverpayment)}/month extra would clear your mortgage{" "}
+                    <span style={{ fontWeight: 700, color: "#10B981" }}>{tenYears.maxYearsSaved} years</span>{" "}
+                    early, saving <span style={{ fontWeight: 700, color: "#10B981" }}>{fmt(tenYears.maxInterestSaved)}</span>.
+                  </p>
+                </div>
+              </div>
+            );
+          })()}
+        </Card>
+
         {/* AI Recommendations */}
         <div style={{ background: "linear-gradient(135deg, #6366F1, #4F46E5)", borderRadius: 16, padding: 28, marginBottom: 24, color: "white" }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16, gap: 12, flexWrap: "wrap" }}>
             <h3 style={{ fontSize: 18, fontWeight: 600, margin: 0 }}>AI Recommendations</h3>
             <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <button
+                onClick={() => window.print()}
+                className="no-print"
+                style={{
+                  padding: "8px 16px",
+                  background: "rgba(255,255,255,0.2)",
+                  color: "white",
+                  border: "1px solid rgba(255,255,255,0.3)",
+                  borderRadius: 8,
+                  fontSize: 13,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                }}
+              >
+                🖨 Print Report
+              </button>
               <button
                 onClick={() => setShowEmailModal(true)}
                 style={{
@@ -1092,7 +1321,12 @@ function ResultsDashboard({ analysis, form, extraPayment, setExtraPayment, targe
             </div>
           </div>
           <div style={{ display: "grid", gap: 12 }}>
-            {generateRecommendations(analysis, form).map((rec, i) => (
+            {aiLoading ? (
+              <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "16px 0", opacity: 0.85 }}>
+                <div style={{ width: 22, height: 22, borderRadius: "50%", border: "3px solid rgba(255,255,255,0.3)", borderTopColor: "white", animation: "spin 0.8s linear infinite", flexShrink: 0 }} />
+                <p style={{ margin: 0, fontSize: 14 }}>Generating your personalised report...</p>
+              </div>
+            ) : (aiRecs || generateRecommendations(analysis, form)).map((rec, i) => (
               <div key={i} style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
                 <div style={{ width: 28, height: 28, borderRadius: 8, background: "rgba(255,255,255,0.2)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, fontSize: 14 }}>{i + 1}</div>
                 <p style={{ margin: 0, lineHeight: 1.6, fontSize: 14, opacity: 0.95 }}>{rec}</p>
@@ -1235,21 +1469,24 @@ function Card({ title, subtitle, children }) {
 
 function generateRecommendations(analysis, form) {
   const recs = [];
-  const { current, overpaymentScenarios, maxMonthlyOverpayment } = analysis;
+  const { current, overpaymentScenarios } = analysis;
   const rate = parseFloat(form.interestRate);
+  const isIslamic = form.bank === "Gatehouse Bank" || false;
+  const interestWord = isIslamic ? "rental charges" : "interest";
+  const productWord = isIslamic ? "Home Purchase Plan" : "mortgage";
 
   if (overpaymentScenarios.length > 0) {
     const best = overpaymentScenarios.filter((s) => s.withinLimit).pop();
     if (best) {
       recs.push(
-        `Maximise your overpayment allowance: paying an extra ${best.extra}/month would save you £${best.saved.toLocaleString()} in interest and cut ${best.yearsSaved} years off your mortgage — all within your penalty-free allowance.`
+        `Maximise your overpayment allowance: paying an extra ${best.extra}/month would save you £${best.saved.toLocaleString()} in ${interestWord} and cut ${best.yearsSaved} years off your ${productWord} — all within your penalty-free allowance.`
       );
     }
   }
 
   if (form.rateType === "Fixed" && form.fixedUntil) {
     recs.push(
-      `Your fixed rate ends ${form.fixedUntil}. Start shopping for remortgage deals 3-6 months before to avoid falling onto your lender's SVR, which is typically 1.5-2% higher.`
+      `Your fixed rate ends ${form.fixedUntil}. Start shopping for deals 3-6 months before to avoid falling onto your lender's revert rate, which is typically 1.5-2% higher.`
     );
   } else if (form.rateType.includes("SVR")) {
     recs.push(
@@ -1259,7 +1496,7 @@ function generateRecommendations(analysis, form) {
 
   if (rate >= 5) {
     recs.push(
-      `At ${rate}%, your rate is on the higher end. You'd pay £${current.totalInterest.toLocaleString()} in interest alone. Even reducing by 0.5% through remortgaging could save tens of thousands.`
+      `At ${rate}%, your rate is on the higher end. You'd pay £${current.totalInterest.toLocaleString()} in ${interestWord} alone. Even reducing by 0.5% through a product transfer could save tens of thousands.`
     );
   }
 
@@ -1269,12 +1506,18 @@ function generateRecommendations(analysis, form) {
     );
   }
 
-  recs.push(
-    `Consider an offset mortgage if you have significant savings. Rather than earning taxable interest, offsetting against your balance reduces the interest you pay — effectively earning your mortgage rate tax-free.`
-  );
+  if (isIslamic) {
+    recs.push(
+      `As a Gatehouse Bank Home Purchase Plan holder, you can make lump sum overpayments directly to reduce your acquisition balance. Contact Gatehouse to confirm your current overpayment allowance and process.`
+    );
+  } else {
+    recs.push(
+      `Consider an offset mortgage if you have significant savings. Rather than earning taxable interest, offsetting against your balance reduces the interest you pay — effectively earning your mortgage rate tax-free.`
+    );
+  }
 
   recs.push(
-    `If you receive a bonus or windfall, even a one-off £5,000 overpayment now could save over £${Math.round(5000 * rate / 100 * parseFloat(form.remainingYears) * 0.4).toLocaleString()} in interest over your remaining term.`
+    `If you receive a bonus or windfall, even a one-off £5,000 overpayment now could save over £${Math.round(5000 * rate / 100 * parseFloat(form.remainingYears) * 0.4).toLocaleString()} in ${interestWord} over your remaining term.`
   );
 
   return recs.slice(0, 5);
