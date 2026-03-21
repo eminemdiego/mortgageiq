@@ -4,21 +4,29 @@ import { useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import {
-  Building2, Plus, Trash2, TrendingUp, Home, ArrowLeft, ChevronRight, AlertTriangle, CheckCircle,
+  Building2, Plus, Trash2, ArrowLeft, ChevronRight, AlertTriangle, CheckCircle, Clock,
 } from "lucide-react";
 
-const fmt = (n) => "£" + Number(n).toLocaleString("en-GB");
+const fmt = (n) => "£" + Number(n || 0).toLocaleString("en-GB");
 
 function calcCashFlow(p) {
   const agentFee = (p.monthly_rent * (p.management_fee_pct || 0)) / 100;
   const costs = agentFee + (p.buildings_insurance || 0) + (p.landlord_insurance || 0) +
     (p.ground_rent || 0) + (p.service_charge || 0) + (p.maintenance_reserve || 0);
-  return p.monthly_rent - p.monthly_payment - costs;
+  return { net: p.monthly_rent - (p.monthly_payment || 0) - costs, income: p.monthly_rent, costs: (p.monthly_payment || 0) + costs };
 }
 
 function grossYield(p) {
-  if (!p.estimated_value || !p.monthly_rent) return 0;
+  if (!p.estimated_value || !p.monthly_rent) return null;
   return ((p.monthly_rent * 12) / p.estimated_value * 100).toFixed(1);
+}
+
+function tenancyStatus(p) {
+  if (!p.tenancy_end) return { label: "Tenanted", color: "#10B981", bg: "#ECFDF5", icon: CheckCircle };
+  const days = Math.round((new Date(p.tenancy_end) - new Date()) / (1000 * 60 * 60 * 24));
+  if (days < 0) return { label: "Void", color: "#EF4444", bg: "#FEE2E2", icon: AlertTriangle };
+  if (days <= 90) return { label: "Ending soon", color: "#F59E0B", bg: "#FEF3C7", icon: Clock };
+  return { label: "Tenanted", color: "#10B981", bg: "#ECFDF5", icon: CheckCircle };
 }
 
 const CARD = { background: "white", border: "1px solid #E5E7EB", borderRadius: 16, padding: 28, marginBottom: 24 };
@@ -66,12 +74,12 @@ export default function PortfolioDashboard() {
     );
   }
 
-  const totalValue = properties.reduce((s, p) => s + (p.estimated_value || 0), 0);
-  const totalEquity = properties.reduce((s, p) => s + ((p.estimated_value || 0) - (p.outstanding_balance || 0)), 0);
-  const totalCashFlow = properties.reduce((s, p) => s + calcCashFlow(p), 0);
-  const avgYield = properties.length
-    ? (properties.reduce((s, p) => s + parseFloat(grossYield(p)), 0) / properties.length).toFixed(1)
-    : 0;
+  const totalIncome = properties.reduce((s, p) => s + (p.monthly_rent || 0), 0);
+  const totalCosts = properties.reduce((s, p) => s + calcCashFlow(p).costs, 0);
+  const totalNet = totalIncome - totalCosts;
+  const avgYield = properties.filter(p => grossYield(p)).length
+    ? (properties.filter(p => grossYield(p)).reduce((s, p) => s + parseFloat(grossYield(p)), 0) / properties.filter(p => grossYield(p)).length).toFixed(1)
+    : null;
 
   return (
     <div style={PAGE}>
@@ -108,63 +116,65 @@ export default function PortfolioDashboard() {
           </div>
         ) : (
           <>
-            {/* Stats bar */}
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 16, marginBottom: 32 }}>
+            {/* Summary bar */}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14, marginBottom: 32 }}>
               {[
                 { label: "Total Properties", value: properties.length, raw: true },
-                { label: "Portfolio Value", value: fmt(totalValue) },
-                { label: "Total Equity", value: fmt(totalEquity) },
-                { label: "Net Monthly Cash Flow", value: fmt(Math.round(totalCashFlow)), color: totalCashFlow >= 0 ? "#10B981" : "#EF4444" },
-                { label: "Avg Gross Yield", value: avgYield + "%" },
+                { label: "Monthly Income", value: fmt(Math.round(totalIncome)), color: "#10B981" },
+                { label: "Monthly Costs", value: fmt(Math.round(totalCosts)), color: "#EF4444" },
+                { label: "Net Monthly Profit", value: fmt(Math.round(totalNet)), color: totalNet >= 0 ? "#10B981" : "#EF4444" },
               ].map((s, i) => (
-                <div key={i} style={{ background: "white", border: "1px solid #E5E7EB", borderRadius: 14, padding: "20px 18px" }}>
+                <div key={i} style={{ background: "white", border: "1px solid #E5E7EB", borderRadius: 14, padding: "18px 20px" }}>
                   <p style={{ fontSize: 12, color: "#666", marginBottom: 6 }}>{s.label}</p>
-                  <p style={{ fontSize: 22, fontWeight: 700, color: s.color || "#111" }}>{s.raw ? s.value : s.value}</p>
+                  <p style={{ fontSize: s.raw ? 28 : 20, fontWeight: 700, color: s.color || "#111" }}>{s.raw ? s.value : s.value}</p>
+                  {avgYield && i === 0 && <p style={{ fontSize: 12, color: "#6B7280", marginTop: 4 }}>Avg yield: {avgYield}%</p>}
                 </div>
               ))}
             </div>
 
             {/* Properties grid */}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
+            <div style={{ display: "grid", gridTemplateColumns: properties.length > 2 ? "1fr 1fr" : "1fr 1fr", gap: 20 }}>
               {properties.map((p) => {
-                const cf = calcCashFlow(p);
+                const { net: cf } = calcCashFlow(p);
                 const gy = grossYield(p);
+                const ts = tenancyStatus(p);
+                const TsIcon = ts.icon;
                 return (
                   <div key={p.id} style={{ background: "white", border: "1px solid #E5E7EB", borderRadius: 16, padding: 24 }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16 }}>
-                      <div style={{ flex: 1 }}>
-                        <h3 style={{ fontSize: 16, fontWeight: 700, marginBottom: 4 }}>{p.address}</h3>
-                        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                          <span style={{ padding: "3px 10px", background: "#EEF2FF", color: "#6366F1", borderRadius: 6, fontSize: 12, fontWeight: 500 }}>{p.property_type}</span>
-                          <span style={{ padding: "3px 10px", background: "#F3F4F6", color: "#374151", borderRadius: 6, fontSize: 12 }}>{p.bedrooms} bed</span>
-                          <span style={{ padding: "3px 10px", background: p.is_tenanted ? "#ECFDF5" : "#FEE2E2", color: p.is_tenanted ? "#10B981" : "#EF4444", borderRadius: 6, fontSize: 12, fontWeight: 500, display: "flex", alignItems: "center", gap: 4 }}>
-                            {p.is_tenanted ? <CheckCircle size={11} /> : <AlertTriangle size={11} />}
-                            {p.is_tenanted ? "Tenanted" : "Void"}
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 14 }}>
+                      <div style={{ flex: 1, marginRight: 12 }}>
+                        <h3 style={{ fontSize: 15, fontWeight: 700, marginBottom: 6, lineHeight: 1.3 }}>
+                          {p.address?.split(",")[0] || p.address}
+                        </h3>
+                        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                          <span style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "3px 10px", background: ts.bg, color: ts.color, borderRadius: 20, fontSize: 12, fontWeight: 500 }}>
+                            <TsIcon size={11} /> {ts.label}
                           </span>
+                          {p.lender && <span style={{ padding: "3px 10px", background: "#FEF3C7", color: "#92400E", borderRadius: 20, fontSize: 12 }}>{p.lender}</span>}
                         </div>
                       </div>
-                      <button onClick={() => handleDelete(p.id)} title="Delete property" style={{ background: "#FEE2E2", border: "none", borderRadius: 8, padding: "8px 10px", cursor: "pointer", color: "#EF4444", display: "flex", alignItems: "center" }}>
-                        <Trash2 size={14} />
+                      <button onClick={() => handleDelete(p.id)} title="Delete" style={{ background: "#FEE2E2", border: "none", borderRadius: 8, padding: "7px 9px", cursor: "pointer", color: "#EF4444", display: "flex", alignItems: "center", flexShrink: 0 }}>
+                        <Trash2 size={13} />
                       </button>
                     </div>
 
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 16 }}>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 16 }}>
                       <div>
-                        <p style={{ fontSize: 11, color: "#666", marginBottom: 4 }}>Monthly Rent</p>
-                        <p style={{ fontSize: 18, fontWeight: 700 }}>{fmt(p.monthly_rent)}</p>
+                        <p style={{ fontSize: 11, color: "#666", marginBottom: 3 }}>Monthly rent</p>
+                        <p style={{ fontSize: 17, fontWeight: 700 }}>{fmt(p.monthly_rent)}</p>
                       </div>
                       <div>
-                        <p style={{ fontSize: 11, color: "#666", marginBottom: 4 }}>Net Cash Flow</p>
-                        <p style={{ fontSize: 18, fontWeight: 700, color: cf >= 0 ? "#10B981" : "#EF4444" }}>{fmt(Math.round(cf))}</p>
+                        <p style={{ fontSize: 11, color: "#666", marginBottom: 3 }}>Net profit</p>
+                        <p style={{ fontSize: 17, fontWeight: 700, color: cf >= 0 ? "#10B981" : "#EF4444" }}>{fmt(Math.round(cf))}</p>
                       </div>
                       <div>
-                        <p style={{ fontSize: 11, color: "#666", marginBottom: 4 }}>Gross Yield</p>
-                        <p style={{ fontSize: 18, fontWeight: 700 }}>{gy}%</p>
+                        <p style={{ fontSize: 11, color: "#666", marginBottom: 3 }}>Gross yield</p>
+                        <p style={{ fontSize: 17, fontWeight: 700 }}>{gy ? gy + "%" : "—"}</p>
                       </div>
                     </div>
 
-                    <button onClick={() => router.push(`/portfolio/${p.id}`)} style={{ width: "100%", padding: "10px 0", background: "#F5F3FF", color: "#6366F1", border: "1px solid #C7D2FE", borderRadius: 10, fontSize: 14, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
-                      View Details <ChevronRight size={16} />
+                    <button onClick={() => router.push(`/portfolio/${p.id}`)} style={{ width: "100%", padding: "10px 0", background: "#F5F3FF", color: "#6366F1", border: "1px solid #C7D2FE", borderRadius: 10, fontSize: 13, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+                      View Details <ChevronRight size={15} />
                     </button>
                   </div>
                 );

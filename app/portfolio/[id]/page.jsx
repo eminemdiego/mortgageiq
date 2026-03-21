@@ -4,15 +4,17 @@ import { useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter, useParams } from "next/navigation";
 import {
-  ArrowLeft, Edit2, Trash2, TrendingUp, AlertTriangle, CheckCircle, Home,
+  ArrowLeft, Edit2, Trash2, AlertTriangle, CheckCircle, ChevronDown, ChevronUp,
 } from "lucide-react";
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from "recharts";
 
-const fmt = (n) => "£" + Number(n).toLocaleString("en-GB");
+const fmt = (n) => "£" + Number(n || 0).toLocaleString("en-GB");
 const PAGE = { minHeight: "100vh", background: "#FAFBFC", fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" };
 const CARD = { background: "white", border: "1px solid #E5E7EB", borderRadius: 16, padding: 28, marginBottom: 24 };
+const INPUT = { width: "100%", padding: "10px 14px", border: "1px solid #D1D5DB", borderRadius: 10, fontSize: 14, outline: "none", boxSizing: "border-box" };
+const LABEL = { fontSize: 12, fontWeight: 500, color: "#6B7280", display: "block", marginBottom: 5 };
 
 function calcMonthlyPayment(principal, annualRate, years) {
   const r = annualRate / 100 / 12;
@@ -44,9 +46,10 @@ function buildAmortization(principal, annualRate, monthlyPayment, extraMonthly =
 
 function calcCashFlow(p) {
   const agentFee = (p.monthly_rent * (p.management_fee_pct || 0)) / 100;
-  const costs = agentFee + (p.buildings_insurance || 0) + (p.landlord_insurance || 0) +
+  const extras = (p.buildings_insurance || 0) + (p.landlord_insurance || 0) +
     (p.ground_rent || 0) + (p.service_charge || 0) + (p.maintenance_reserve || 0);
-  return { net: p.monthly_rent - p.monthly_payment - costs, agentFee };
+  const costs = agentFee + extras + (p.monthly_payment || 0);
+  return { net: p.monthly_rent - costs, agentFee, extras };
 }
 
 function metricStatus(value, thresholds) {
@@ -64,7 +67,10 @@ export default function PropertyDetail() {
   const [rentExtra, setRentExtra] = useState(0);
   const [rateRise, setRateRise] = useState(0);
   const [voidMonths, setVoidMonths] = useState(1);
-  const [newAgentPct, setNewAgentPct] = useState("");
+  const [extrasOpen, setExtrasOpen] = useState(false);
+  const [extras, setExtras] = useState({ buildings_insurance: "", landlord_insurance: "", ground_rent: "", service_charge: "", maintenance_reserve: "" });
+  const [savingExtras, setSavingExtras] = useState(false);
+  const [extrasSaved, setExtrasSaved] = useState(false);
 
   useEffect(() => {
     if (status === "unauthenticated") router.push("/auth/signin");
@@ -78,7 +84,15 @@ export default function PropertyDetail() {
     try {
       const res = await fetch(`/api/portfolio/${params.id}`);
       if (!res.ok) { router.push("/portfolio"); return; }
-      setProperty(await res.json());
+      const data = await res.json();
+      setProperty(data);
+      setExtras({
+        buildings_insurance: data.buildings_insurance || "",
+        landlord_insurance: data.landlord_insurance || "",
+        ground_rent: data.ground_rent || "",
+        service_charge: data.service_charge || "",
+        maintenance_reserve: data.maintenance_reserve || "",
+      });
     } finally {
       setLoading(false);
     }
@@ -88,6 +102,27 @@ export default function PropertyDetail() {
     if (!confirm("Delete this property?")) return;
     await fetch(`/api/portfolio/${params.id}`, { method: "DELETE" });
     router.push("/portfolio");
+  };
+
+  const handleSaveExtras = async () => {
+    setSavingExtras(true);
+    try {
+      const payload = {};
+      Object.entries(extras).forEach(([k, v]) => { payload[k] = parseFloat(v) || 0; });
+      const res = await fetch(`/api/portfolio/${params.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (res.ok) {
+        const updated = await res.json();
+        setProperty(updated);
+        setExtrasSaved(true);
+        setTimeout(() => setExtrasSaved(false), 3000);
+      }
+    } finally {
+      setSavingExtras(false);
+    }
   };
 
   if (status === "loading" || loading) {
@@ -101,48 +136,43 @@ export default function PropertyDetail() {
   if (!property) return null;
 
   const p = property;
-  const { net: netCF, agentFee } = calcCashFlow(p);
+  const { net: netCF, agentFee, extras: extrasCost } = calcCashFlow(p);
   const grossYield = p.estimated_value ? ((p.monthly_rent * 12) / p.estimated_value * 100) : 0;
-  const totalCosts = agentFee + (p.buildings_insurance || 0) + (p.landlord_insurance || 0) +
-    (p.ground_rent || 0) + (p.service_charge || 0) + (p.maintenance_reserve || 0) + (p.monthly_payment || 0);
+  const totalCosts = agentFee + extrasCost + (p.monthly_payment || 0);
   const netYield = p.estimated_value ? (((p.monthly_rent - totalCosts) * 12) / p.estimated_value * 100) : 0;
-  const equity = (p.estimated_value || 0) - (p.outstanding_balance || 0);
   const annualInterest = (p.outstanding_balance || 0) * (p.interest_rate || 0) / 100;
   const icr = annualInterest > 0 ? (p.monthly_rent * 12) / annualInterest : 0;
-  const rentToMortgage = p.monthly_payment > 0 ? (p.monthly_rent / p.monthly_payment).toFixed(2) : "N/A";
+  const rentToMortgage = p.monthly_payment > 0 ? (p.monthly_rent / p.monthly_payment).toFixed(2) : null;
 
   // Amortisation
   const amort = p.outstanding_balance && p.interest_rate && p.monthly_payment && p.remaining_years
     ? buildAmortization(p.outstanding_balance, p.interest_rate, p.monthly_payment)
     : { schedule: [], totalMonths: 0, totalInterest: 0 };
 
-  // Overpayment scenarios
   const overpayScenarios = [100, 200, 300].map((extra) => {
     const base = buildAmortization(p.outstanding_balance, p.interest_rate, p.monthly_payment);
     const ov = buildAmortization(p.outstanding_balance, p.interest_rate, p.monthly_payment, extra);
-    return {
-      extra,
-      monthsSaved: base.totalMonths - ov.totalMonths,
-      interestSaved: base.totalInterest - ov.totalInterest,
-    };
+    return { extra, monthsSaved: base.totalMonths - ov.totalMonths, interestSaved: base.totalInterest - ov.totalInterest };
   });
 
-  // Tenancy countdown
+  // Tenancy
   const tenancyEnd = p.tenancy_end ? new Date(p.tenancy_end) : null;
   const daysUntilEnd = tenancyEnd ? Math.round((tenancyEnd - new Date()) / (1000 * 60 * 60 * 24)) : null;
 
-  // What-if scenarios
+  // What-if
   const newRentCF = calcCashFlow({ ...p, monthly_rent: (p.monthly_rent || 0) + Number(rentExtra) });
-  const newRentYield = p.estimated_value ? (((p.monthly_rent + Number(rentExtra)) * 12) / p.estimated_value * 100).toFixed(1) : 0;
   const newRate = (p.interest_rate || 0) + Number(rateRise);
   const newPayment = p.outstanding_balance && p.remaining_years
     ? calcMonthlyPayment(p.outstanding_balance, newRate, p.remaining_years)
     : p.monthly_payment;
   const newRateCF = calcCashFlow({ ...p, monthly_payment: newPayment });
   const voidLoss = (p.monthly_rent || 0) * Number(voidMonths);
-  const currentAgentFee = (p.monthly_rent * (p.management_fee_pct || 0)) / 100;
-  const newAgentFee = newAgentPct !== "" ? (p.monthly_rent * parseFloat(newAgentPct)) / 100 : currentAgentFee;
-  const agentSaving = currentAgentFee - newAgentFee;
+
+  // Monthly profit overpayment insight
+  const profitHalf = Math.round(netCF / 2);
+  const halfOverpay = profitHalf > 0 ? buildAmortization(p.outstanding_balance, p.interest_rate, p.monthly_payment, profitHalf) : null;
+  const baseAmort = p.outstanding_balance ? buildAmortization(p.outstanding_balance, p.interest_rate, p.monthly_payment) : null;
+  const yearsSaved = halfOverpay && baseAmort ? Math.round((baseAmort.totalMonths - halfOverpay.totalMonths) / 12) : 0;
 
   return (
     <div style={PAGE}>
@@ -165,161 +195,141 @@ export default function PropertyDetail() {
 
       <div style={{ maxWidth: 1000, margin: "0 auto", padding: "40px 20px" }}>
         {/* Title */}
-        <div style={{ marginBottom: 28 }}>
-          <h1 style={{ fontSize: 26, fontWeight: 700, marginBottom: 6, display: "flex", alignItems: "center", gap: 10 }}>
-            <Home size={24} color="#6366F1" /> {p.address}
-          </h1>
-          <div style={{ display: "flex", gap: 8 }}>
-            <span style={{ padding: "4px 12px", background: "#EEF2FF", color: "#6366F1", borderRadius: 6, fontSize: 13, fontWeight: 500 }}>{p.property_type}</span>
-            <span style={{ padding: "4px 12px", background: "#F3F4F6", color: "#374151", borderRadius: 6, fontSize: 13 }}>{p.bedrooms} bed</span>
+        <div style={{ marginBottom: 24 }}>
+          <h1 style={{ fontSize: 24, fontWeight: 700, marginBottom: 8 }}>{p.address}</h1>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             {p.lender && <span style={{ padding: "4px 12px", background: "#FEF3C7", color: "#92400E", borderRadius: 6, fontSize: 13 }}>{p.lender}</span>}
+            {p.interest_rate && <span style={{ padding: "4px 12px", background: "#EEF2FF", color: "#6366F1", borderRadius: 6, fontSize: 13 }}>{p.interest_rate}% rate</span>}
           </div>
         </div>
 
-        {/* Summary stats */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16, marginBottom: 24 }}>
-          {[
-            { label: "Monthly Rent", value: fmt(p.monthly_rent) },
-            { label: "Net Cash Flow", value: fmt(Math.round(netCF)), color: netCF >= 0 ? "#10B981" : "#EF4444" },
-            { label: "Gross Yield", value: grossYield.toFixed(1) + "%" },
-            { label: "Equity", value: fmt(Math.round(equity)), color: equity >= 0 ? "#10B981" : "#EF4444" },
-          ].map((s, i) => (
-            <div key={i} style={{ background: "white", border: "1px solid #E5E7EB", borderRadius: 14, padding: "20px 18px" }}>
-              <p style={{ fontSize: 12, color: "#666", marginBottom: 6 }}>{s.label}</p>
-              <p style={{ fontSize: 22, fontWeight: 700, color: s.color || "#111" }}>{s.value}</p>
+        {/* Tenancy alert — 90 days */}
+        {daysUntilEnd !== null && daysUntilEnd <= 90 && (
+          <div style={{ marginBottom: 24, padding: "16px 20px", background: daysUntilEnd < 0 ? "#FEE2E2" : "#FEF3C7", border: `1px solid ${daysUntilEnd < 0 ? "#FECACA" : "#FDE68A"}`, borderRadius: 12, display: "flex", alignItems: "center", gap: 12 }}>
+            <AlertTriangle size={20} color={daysUntilEnd < 0 ? "#EF4444" : "#F59E0B"} />
+            <div>
+              <p style={{ fontWeight: 700, color: daysUntilEnd < 0 ? "#991B1B" : "#92400E", marginBottom: 2, fontSize: 14 }}>
+                {daysUntilEnd < 0 ? "Tenancy has expired" : `Tenancy ending in ${daysUntilEnd} days`}
+              </p>
+              <p style={{ fontSize: 13, color: "#6B7280" }}>
+                {daysUntilEnd < 0 ? `Expired ${Math.abs(daysUntilEnd)} days ago — contact your agent to re-let.` : "Re-let soon to avoid a void period and lost income."}
+              </p>
             </div>
-          ))}
+          </div>
+        )}
+
+        {/* ── HERO CASH FLOW ── */}
+        <div style={{ ...CARD, background: "linear-gradient(135deg, #F5F3FF, #EEF2FF)", border: "1px solid #C7D2FE" }}>
+          <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 20, color: "#374151" }}>Monthly Cash Flow</h2>
+          <div style={{ fontFamily: "ui-monospace, 'Courier New', monospace", fontSize: 15 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", paddingBottom: 10, marginBottom: 10 }}>
+              <span style={{ color: "#374151" }}>Monthly rent</span>
+              <span style={{ fontWeight: 600, color: "#10B981" }}>+{fmt(p.monthly_rent)}</span>
+            </div>
+            {p.monthly_payment > 0 && (
+              <div style={{ display: "flex", justifyContent: "space-between", paddingBottom: 8, color: "#6B7280" }}>
+                <span>Mortgage payment</span>
+                <span>−{fmt(p.monthly_payment)}</span>
+              </div>
+            )}
+            {agentFee > 0 && (
+              <div style={{ display: "flex", justifyContent: "space-between", paddingBottom: 8, color: "#6B7280" }}>
+                <span>Agent fee ({p.management_fee_pct}%)</span>
+                <span>−{fmt(Math.round(agentFee))}</span>
+              </div>
+            )}
+            {extrasCost > 0 && (
+              <div style={{ display: "flex", justifyContent: "space-between", paddingBottom: 8, color: "#6B7280" }}>
+                <span>Other costs</span>
+                <span>−{fmt(Math.round(extrasCost))}</span>
+              </div>
+            )}
+            <div style={{ borderTop: "2px solid #C7D2FE", paddingTop: 14, marginTop: 6 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span style={{ fontSize: 17, fontWeight: 700, color: "#111" }}>Net monthly profit</span>
+                <span style={{ fontSize: 28, fontWeight: 800, color: netCF >= 0 ? "#10B981" : "#EF4444" }}>{fmt(Math.round(netCF))}</span>
+              </div>
+              <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 4 }}>
+                <span style={{ fontSize: 13, color: "#6B7280" }}>Annual: <strong style={{ color: netCF >= 0 ? "#10B981" : "#EF4444" }}>{fmt(Math.round(netCF * 12))}</strong></span>
+              </div>
+            </div>
+          </div>
+
+          {/* Overpayment insight */}
+          {yearsSaved > 0 && netCF > 0 && (
+            <div style={{ marginTop: 20, padding: "12px 16px", background: "white", borderRadius: 10, border: "1px solid #C7D2FE", fontSize: 13, color: "#374151" }}>
+              Putting 50% of your monthly profit ({fmt(profitHalf)}) toward overpayments would clear this mortgage <strong>{yearsSaved} {yearsSaved === 1 ? "year" : "years"}</strong> early.
+            </div>
+          )}
         </div>
 
-        {/* Cash flow breakdown */}
+        {/* Key Metrics */}
         <div style={CARD}>
-          <h2 style={{ fontSize: 17, fontWeight: 700, marginBottom: 20 }}>Monthly Cash Flow Breakdown</h2>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
-            <tbody>
-              {[
-                { label: "Monthly Rent", value: p.monthly_rent, positive: true },
-                { label: "Less: Mortgage Payment", value: -p.monthly_payment },
-                { label: `Less: Agent Fee (${p.management_fee_pct || 0}%)`, value: -agentFee },
-                { label: "Less: Buildings Insurance", value: -(p.buildings_insurance || 0) },
-                { label: "Less: Landlord Insurance", value: -(p.landlord_insurance || 0) },
-                { label: "Less: Ground Rent", value: -(p.ground_rent || 0) },
-                { label: "Less: Service Charge", value: -(p.service_charge || 0) },
-                { label: "Less: Maintenance Reserve", value: -(p.maintenance_reserve || 0) },
-              ].map((row, i) => (
-                <tr key={i} style={{ borderBottom: "1px solid #F3F4F6" }}>
-                  <td style={{ padding: "10px 0", color: "#374151" }}>{row.label}</td>
-                  <td style={{ padding: "10px 0", textAlign: "right", color: row.positive ? "#10B981" : "#374151", fontWeight: 500 }}>{fmt(Math.abs(row.value))}</td>
-                </tr>
-              ))}
-              <tr style={{ borderTop: "2px solid #E5E7EB", background: "#FAFBFC" }}>
-                <td style={{ padding: "14px 0", fontWeight: 700, fontSize: 15 }}>= Net Monthly Profit</td>
-                <td style={{ padding: "14px 0", textAlign: "right", fontWeight: 700, fontSize: 18, color: netCF >= 0 ? "#10B981" : "#EF4444" }}>{fmt(Math.round(netCF))}</td>
-              </tr>
-              <tr>
-                <td style={{ padding: "8px 0", color: "#666", fontSize: 13 }}>Annual Projection</td>
-                <td style={{ padding: "8px 0", textAlign: "right", color: netCF >= 0 ? "#10B981" : "#EF4444", fontSize: 13, fontWeight: 600 }}>{fmt(Math.round(netCF * 12))}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-
-        {/* Investment Metrics */}
-        <div style={CARD}>
-          <h2 style={{ fontSize: 17, fontWeight: 700, marginBottom: 20 }}>Key Investment Metrics</h2>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 16 }}>
+          <h2 style={{ fontSize: 17, fontWeight: 700, marginBottom: 20 }}>Key Metrics</h2>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14 }}>
             {[
-              { label: "Gross Yield", value: grossYield.toFixed(1) + "%", status: metricStatus(grossYield, [6, 4]) },
-              { label: "Net Yield", value: netYield.toFixed(1) + "%", status: metricStatus(netYield, [4, 2]) },
-              { label: "Rent / Mortgage", value: rentToMortgage + "x", status: metricStatus(parseFloat(rentToMortgage), [1.5, 1.2]) },
-              { label: "ICR", value: icr.toFixed(2) + "x", status: metricStatus(icr, [1.45, 1.2]) },
+              { label: "Gross Yield", value: p.estimated_value ? grossYield.toFixed(1) + "%" : "—", status: p.estimated_value ? metricStatus(grossYield, [6, 4]) : null },
+              { label: "Net Yield", value: p.estimated_value ? netYield.toFixed(1) + "%" : "—", status: p.estimated_value ? metricStatus(netYield, [4, 2]) : null },
+              { label: "Rent / Mortgage", value: rentToMortgage ? rentToMortgage + "x" : "—", status: rentToMortgage ? metricStatus(parseFloat(rentToMortgage), [1.5, 1.2]) : null },
+              { label: "ICR", value: icr > 0 ? icr.toFixed(2) + "x" : "—", status: icr > 0 ? metricStatus(icr, [1.45, 1.2]) : null },
             ].map((m, i) => (
-              <div key={i} style={{ background: m.status.bg, borderRadius: 12, padding: "18px 16px", textAlign: "center" }}>
+              <div key={i} style={{ background: m.status?.bg || "#F9FAFB", borderRadius: 12, padding: "18px 16px", textAlign: "center" }}>
                 <p style={{ fontSize: 12, color: "#666", marginBottom: 6 }}>{m.label}</p>
-                <p style={{ fontSize: 24, fontWeight: 700, color: m.status.color, marginBottom: 6 }}>{m.value}</p>
-                <span style={{ fontSize: 11, fontWeight: 600, color: m.status.color }}>{m.status.label}</span>
+                <p style={{ fontSize: 22, fontWeight: 700, color: m.status?.color || "#111", marginBottom: 4 }}>{m.value}</p>
+                {m.status && <span style={{ fontSize: 11, fontWeight: 600, color: m.status.color }}>{m.status.label}</span>}
               </div>
             ))}
           </div>
         </div>
 
         {/* Tenancy Status */}
-        <div style={CARD}>
-          <h2 style={{ fontSize: 17, fontWeight: 700, marginBottom: 20 }}>Tenancy Status</h2>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
-            <div>
-              <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
-                <span style={{ padding: "6px 14px", background: p.is_tenanted ? "#ECFDF5" : "#FEE2E2", color: p.is_tenanted ? "#10B981" : "#EF4444", borderRadius: 8, fontSize: 13, fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}>
-                  {p.is_tenanted ? <CheckCircle size={14} /> : <AlertTriangle size={14} />}
-                  {p.is_tenanted ? "Currently Tenanted" : "Currently Void"}
+        {(p.tenant_name || p.tenancy_end || p.deposit_amount) && (
+          <div style={CARD}>
+            <h2 style={{ fontSize: 17, fontWeight: 700, marginBottom: 16 }}>Tenancy</h2>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 20, fontSize: 14 }}>
+              {p.tenant_name && <div><span style={{ color: "#6B7280" }}>Tenant: </span><strong>{p.tenant_name}</strong></div>}
+              {p.deposit_amount > 0 && <div><span style={{ color: "#6B7280" }}>Deposit: </span><strong>{fmt(p.deposit_amount)}</strong></div>}
+              {p.tenancy_start && <div><span style={{ color: "#6B7280" }}>Start: </span><strong>{new Date(p.tenancy_start).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })}</strong></div>}
+              {p.tenancy_end && <div><span style={{ color: "#6B7280" }}>End: </span><strong>{new Date(p.tenancy_end).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })}</strong></div>}
+              {daysUntilEnd !== null && daysUntilEnd >= 0 && (
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "4px 12px", background: daysUntilEnd <= 90 ? "#FEF3C7" : "#ECFDF5", color: daysUntilEnd <= 90 ? "#92400E" : "#065F46", borderRadius: 20, fontSize: 13, fontWeight: 500 }}>
+                  {daysUntilEnd <= 90 ? <AlertTriangle size={12} /> : <CheckCircle size={12} />}
+                  {daysUntilEnd} days remaining
                 </span>
-              </div>
-              {p.tenant_name && <p style={{ fontSize: 14, marginBottom: 8 }}><b>Tenant:</b> {p.tenant_name}</p>}
-              {p.deposit_amount > 0 && <p style={{ fontSize: 14, marginBottom: 8 }}><b>Deposit:</b> {fmt(p.deposit_amount)}</p>}
-              {p.tenancy_start && <p style={{ fontSize: 14, marginBottom: 8 }}><b>Start:</b> {new Date(p.tenancy_start).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })}</p>}
-              {p.tenancy_end && <p style={{ fontSize: 14, marginBottom: 8 }}><b>End:</b> {new Date(p.tenancy_end).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })}</p>}
-            </div>
-            <div>
-              {daysUntilEnd !== null && (
-                <div style={{ padding: 20, background: daysUntilEnd < 0 ? "#FEE2E2" : daysUntilEnd < 60 ? "#FEF3C7" : "#ECFDF5", borderRadius: 12 }}>
-                  {daysUntilEnd < 0 ? (
-                    <><AlertTriangle size={20} color="#EF4444" style={{ marginBottom: 8 }} /><p style={{ fontWeight: 700, color: "#EF4444", marginBottom: 4 }}>Tenancy Expired</p><p style={{ fontSize: 13, color: "#666" }}>Expired {Math.abs(daysUntilEnd)} days ago</p></>
-                  ) : daysUntilEnd < 60 ? (
-                    <><AlertTriangle size={20} color="#F59E0B" style={{ marginBottom: 8 }} /><p style={{ fontWeight: 700, color: "#92400E", marginBottom: 4 }}>Void Risk</p><p style={{ fontSize: 13, color: "#666" }}>{daysUntilEnd} days until tenancy ends — re-let soon to avoid void period</p></>
-                  ) : (
-                    <><CheckCircle size={20} color="#10B981" style={{ marginBottom: 8 }} /><p style={{ fontWeight: 700, color: "#065F46", marginBottom: 4 }}>Tenancy Secure</p><p style={{ fontSize: 13, color: "#666" }}>{daysUntilEnd} days remaining</p></>
-                  )}
-                </div>
               )}
             </div>
           </div>
-        </div>
+        )}
 
         {/* What-If Scenarios */}
         <div style={CARD}>
           <h2 style={{ fontSize: 17, fontWeight: 700, marginBottom: 6 }}>What-If Scenarios</h2>
-          <p style={{ fontSize: 13, color: "#666", marginBottom: 24 }}>Adjust the inputs to see how changes affect your cash flow.</p>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
-            {/* a. Rent increase */}
-            <div style={{ background: "#F8FAFC", borderRadius: 12, padding: 20 }}>
-              <h4 style={{ fontSize: 14, fontWeight: 600, marginBottom: 12 }}>Rent Increase</h4>
-              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
-                <span style={{ fontSize: 13, color: "#666" }}>Extra £/month:</span>
-                <input type="number" value={rentExtra} onChange={(e) => setRentExtra(e.target.value)} style={{ width: 90, padding: "6px 10px", border: "1px solid #D1D5DB", borderRadius: 8, fontSize: 14 }} />
+          <p style={{ fontSize: 13, color: "#666", marginBottom: 20 }}>See how changes affect your monthly cash flow.</p>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16 }}>
+            <div style={{ background: "#F8FAFC", borderRadius: 12, padding: 18 }}>
+              <h4 style={{ fontSize: 13, fontWeight: 600, marginBottom: 10 }}>Rent increase</h4>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+                <span style={{ fontSize: 12, color: "#6B7280", whiteSpace: "nowrap" }}>Extra £/mo</span>
+                <input type="number" value={rentExtra} onChange={(e) => setRentExtra(e.target.value)} style={{ width: 70, padding: "6px 8px", border: "1px solid #D1D5DB", borderRadius: 6, fontSize: 13 }} />
               </div>
-              <p style={{ fontSize: 13 }}>New cash flow: <b style={{ color: newRentCF.net >= 0 ? "#10B981" : "#EF4444" }}>{fmt(Math.round(newRentCF.net))}/mo</b></p>
-              <p style={{ fontSize: 13 }}>New gross yield: <b>{newRentYield}%</b></p>
+              <p style={{ fontSize: 13 }}>New profit: <strong style={{ color: newRentCF.net >= 0 ? "#10B981" : "#EF4444" }}>{fmt(Math.round(newRentCF.net))}/mo</strong></p>
             </div>
-
-            {/* b. Rate rise */}
-            <div style={{ background: "#F8FAFC", borderRadius: 12, padding: 20 }}>
-              <h4 style={{ fontSize: 14, fontWeight: 600, marginBottom: 12 }}>Rate Rise</h4>
-              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
-                <span style={{ fontSize: 13, color: "#666" }}>Rate change %:</span>
-                <input type="number" step="0.1" value={rateRise} onChange={(e) => setRateRise(e.target.value)} style={{ width: 90, padding: "6px 10px", border: "1px solid #D1D5DB", borderRadius: 8, fontSize: 14 }} />
+            <div style={{ background: "#F8FAFC", borderRadius: 12, padding: 18 }}>
+              <h4 style={{ fontSize: 13, fontWeight: 600, marginBottom: 10 }}>Rate change</h4>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+                <span style={{ fontSize: 12, color: "#6B7280", whiteSpace: "nowrap" }}>Rate change %</span>
+                <input type="number" step="0.1" value={rateRise} onChange={(e) => setRateRise(e.target.value)} style={{ width: 70, padding: "6px 8px", border: "1px solid #D1D5DB", borderRadius: 6, fontSize: 13 }} />
               </div>
-              <p style={{ fontSize: 13 }}>New payment: <b>{fmt(Math.round(newPayment))}/mo</b></p>
-              <p style={{ fontSize: 13 }}>New cash flow: <b style={{ color: newRateCF.net >= 0 ? "#10B981" : "#EF4444" }}>{fmt(Math.round(newRateCF.net))}/mo</b></p>
+              <p style={{ fontSize: 13 }}>New payment: <strong>{fmt(Math.round(newPayment))}/mo</strong></p>
+              <p style={{ fontSize: 13 }}>New profit: <strong style={{ color: newRateCF.net >= 0 ? "#10B981" : "#EF4444" }}>{fmt(Math.round(newRateCF.net))}/mo</strong></p>
             </div>
-
-            {/* c. Void period */}
-            <div style={{ background: "#F8FAFC", borderRadius: 12, padding: 20 }}>
-              <h4 style={{ fontSize: 14, fontWeight: 600, marginBottom: 12 }}>Void Period</h4>
-              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
-                <span style={{ fontSize: 13, color: "#666" }}>Void months:</span>
-                <input type="number" min={1} value={voidMonths} onChange={(e) => setVoidMonths(e.target.value)} style={{ width: 90, padding: "6px 10px", border: "1px solid #D1D5DB", borderRadius: 8, fontSize: 14 }} />
+            <div style={{ background: "#F8FAFC", borderRadius: 12, padding: 18 }}>
+              <h4 style={{ fontSize: 13, fontWeight: 600, marginBottom: 10 }}>Void period</h4>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+                <span style={{ fontSize: 12, color: "#6B7280", whiteSpace: "nowrap" }}>Void months</span>
+                <input type="number" min={1} value={voidMonths} onChange={(e) => setVoidMonths(e.target.value)} style={{ width: 70, padding: "6px 8px", border: "1px solid #D1D5DB", borderRadius: 6, fontSize: 13 }} />
               </div>
-              <p style={{ fontSize: 13 }}>Annual income lost: <b style={{ color: "#EF4444" }}>{fmt(Math.round(voidLoss))}</b></p>
-            </div>
-
-            {/* d. Agent fee change */}
-            <div style={{ background: "#F8FAFC", borderRadius: 12, padding: 20 }}>
-              <h4 style={{ fontSize: 14, fontWeight: 600, marginBottom: 12 }}>Agent Fee Change</h4>
-              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
-                <span style={{ fontSize: 13, color: "#666" }}>New fee %:</span>
-                <input type="number" step="0.5" value={newAgentPct} onChange={(e) => setNewAgentPct(e.target.value)} placeholder={p.management_fee_pct || 0} style={{ width: 90, padding: "6px 10px", border: "1px solid #D1D5DB", borderRadius: 8, fontSize: 14 }} />
-              </div>
-              <p style={{ fontSize: 13 }}>New agent fee: <b>{fmt(Math.round(newAgentFee))}/mo</b></p>
-              <p style={{ fontSize: 13 }}>Monthly {agentSaving >= 0 ? "saving" : "extra cost"}: <b style={{ color: agentSaving >= 0 ? "#10B981" : "#EF4444" }}>{fmt(Math.abs(Math.round(agentSaving)))}</b></p>
+              <p style={{ fontSize: 13 }}>Income lost: <strong style={{ color: "#EF4444" }}>{fmt(Math.round(voidLoss))}</strong></p>
             </div>
           </div>
         </div>
@@ -328,10 +338,12 @@ export default function PropertyDetail() {
         {amort.schedule.length > 0 && (
           <div style={CARD}>
             <h2 style={{ fontSize: 17, fontWeight: 700, marginBottom: 6 }}>Mortgage Analysis</h2>
-            <p style={{ fontSize: 13, color: "#666", marginBottom: 24 }}>Outstanding balance: <b>{fmt(p.outstanding_balance)}</b> at <b>{p.interest_rate}%</b></p>
+            <p style={{ fontSize: 13, color: "#666", marginBottom: 20 }}>
+              {fmt(p.outstanding_balance)} at {p.interest_rate}% — {p.remaining_years} years remaining
+            </p>
 
-            <div style={{ marginBottom: 28 }}>
-              <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 16 }}>Balance Over Time</h3>
+            <div style={{ marginBottom: 24 }}>
+              <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 14 }}>Balance Over Time</h3>
               <ResponsiveContainer width="100%" height={200}>
                 <AreaChart data={amort.schedule}>
                   <defs>
@@ -342,19 +354,19 @@ export default function PropertyDetail() {
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" />
                   <XAxis dataKey="year" tick={{ fontSize: 12 }} tickFormatter={(v) => `Yr ${v}`} />
-                  <YAxis tick={{ fontSize: 12 }} tickFormatter={(v) => `£${(v/1000).toFixed(0)}k`} />
+                  <YAxis tick={{ fontSize: 12 }} tickFormatter={(v) => `£${(v / 1000).toFixed(0)}k`} />
                   <Tooltip formatter={(v) => fmt(v)} labelFormatter={(l) => `Year ${l}`} />
                   <Area type="monotone" dataKey="balance" stroke="#6366F1" strokeWidth={2} fill="url(#balGrad)" name="Balance" />
                 </AreaChart>
               </ResponsiveContainer>
             </div>
 
-            <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 14 }}>Overpayment Scenarios</h3>
+            <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 12 }}>Overpayment Scenarios</h3>
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
               <thead>
                 <tr style={{ background: "#F9FAFB" }}>
                   <th style={{ padding: "10px 12px", textAlign: "left", fontWeight: 600, borderBottom: "1px solid #E5E7EB" }}>Extra/month</th>
-                  <th style={{ padding: "10px 12px", textAlign: "right", fontWeight: 600, borderBottom: "1px solid #E5E7EB" }}>Months saved</th>
+                  <th style={{ padding: "10px 12px", textAlign: "right", fontWeight: 600, borderBottom: "1px solid #E5E7EB" }}>Time saved</th>
                   <th style={{ padding: "10px 12px", textAlign: "right", fontWeight: 600, borderBottom: "1px solid #E5E7EB" }}>Interest saved</th>
                 </tr>
               </thead>
@@ -370,6 +382,63 @@ export default function PropertyDetail() {
             </table>
           </div>
         )}
+
+        {/* Add more details (expandable) */}
+        <div style={{ ...CARD, padding: 0, overflow: "hidden" }}>
+          <button
+            onClick={() => setExtrasOpen((o) => !o)}
+            style={{ width: "100%", padding: "20px 28px", background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 15, fontWeight: 600, color: "#374151" }}
+          >
+            <span>Add more details</span>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, color: "#6B7280" }}>
+              <span style={{ fontSize: 13, fontWeight: 400 }}>Insurance, service charges &amp; maintenance</span>
+              {extrasOpen ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+            </div>
+          </button>
+
+          {extrasOpen && (
+            <div style={{ padding: "0 28px 28px", borderTop: "1px solid #F3F4F6" }}>
+              <p style={{ fontSize: 13, color: "#6B7280", marginBottom: 20, paddingTop: 16 }}>
+                These costs will be factored into your cash flow and yield calculations.
+              </p>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 20 }}>
+                {[
+                  { key: "buildings_insurance", label: "Buildings insurance (£/month)" },
+                  { key: "landlord_insurance", label: "Landlord insurance (£/month)" },
+                  { key: "ground_rent", label: "Ground rent (£/month)" },
+                  { key: "service_charge", label: "Service charge (£/month)" },
+                  { key: "maintenance_reserve", label: "Maintenance budget (£/month)" },
+                ].map(({ key, label }) => (
+                  <div key={key}>
+                    <label style={LABEL}>{label}</label>
+                    <input
+                      style={INPUT}
+                      type="number"
+                      step="1"
+                      value={extras[key]}
+                      onChange={(e) => setExtras((x) => ({ ...x, [key]: e.target.value }))}
+                      placeholder="0"
+                    />
+                  </div>
+                ))}
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                <button
+                  onClick={handleSaveExtras}
+                  disabled={savingExtras}
+                  style={{ padding: "10px 24px", background: savingExtras ? "#A5B4FC" : "linear-gradient(135deg, #6366F1, #4F46E5)", color: "white", border: "none", borderRadius: 10, fontSize: 14, fontWeight: 600, cursor: savingExtras ? "not-allowed" : "pointer" }}
+                >
+                  {savingExtras ? "Saving..." : "Save"}
+                </button>
+                {extrasSaved && (
+                  <span style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 13, color: "#10B981" }}>
+                    <CheckCircle size={14} /> Saved
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
