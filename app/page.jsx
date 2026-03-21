@@ -265,6 +265,15 @@ export default function MortgageAnalyzer() {
     form.outstandingBalance && form.monthlyPayment &&
     form.interestRate && form.remainingYears;
 
+  // Auto-trigger analysis after upload-only extraction completes
+  useEffect(() => {
+    if (inputMethod === "upload" && parsedData && isFormValid) {
+      const timer = setTimeout(() => handleAnalyze(), 1500);
+      return () => clearTimeout(timer);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [parsedData, inputMethod]);
+
   /* ─── Render: Landing ─────────────────────────────────────────────────────── */
 
   if (step === "landing") return <LandingPage onStart={() => setStep("input")} />;
@@ -323,6 +332,18 @@ export default function MortgageAnalyzer() {
             parseError={parseError}
             parsedData={parsedData}
           />
+        )}
+
+        {/* Upload-only: show analyse button once data is extracted */}
+        {inputMethod === "upload" && parsedData && isFormValid && (
+          <div style={{ marginTop: 20, textAlign: "center" }}>
+            <div style={{ marginBottom: 12, fontSize: 13, color: "#10B981", fontWeight: 500 }}>
+              ✓ Details extracted — generating your analysis…
+            </div>
+            <button onClick={handleAnalyze} style={{ ...S.primaryBtn, background: "linear-gradient(135deg, #6366F1, #4F46E5)", display: "inline-flex" }}>
+              <Zap size={18} /> Analyse My Mortgage
+            </button>
+          </div>
         )}
 
         {/* Manual form */}
