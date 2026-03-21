@@ -74,6 +74,53 @@ function buildRateScenarios(principal, currentRate, remainingYears, monthlyPayme
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════════
+   ROLL-FORWARD ENGINE
+   ═══════════════════════════════════════════════════════════════════════════════ */
+
+function rollForward(balance, annualRate, monthlyPayment, months) {
+  const r = annualRate / 100 / 12;
+  let bal = balance;
+  let totalInterest = 0;
+  let totalPrincipal = 0;
+  for (let i = 0; i < months; i++) {
+    if (bal <= 0.01) break;
+    const interest = bal * r;
+    const principal = monthlyPayment - interest;
+    if (principal <= 0) break; // payment doesn't cover interest
+    bal = Math.max(0, bal - principal);
+    totalInterest += interest;
+    totalPrincipal += principal;
+  }
+  return {
+    balance: Math.round(bal),
+    totalInterest: Math.round(totalInterest),
+    totalPrincipal: Math.round(totalPrincipal),
+  };
+}
+
+function parseStatementDate(dateStr) {
+  if (!dateStr) return null;
+  const d = new Date(dateStr);
+  return isNaN(d.getTime()) ? null : d;
+}
+
+function monthsElapsedBetween(from, to) {
+  return (to.getFullYear() - from.getFullYear()) * 12 +
+    (to.getMonth() - from.getMonth());
+}
+
+// Try to parse a free-text month-year string like "March 2027" or "August 2025"
+function parseMonthYear(str) {
+  if (!str) return null;
+  const d = new Date(str.trim() + " 1");
+  return isNaN(d.getTime()) ? null : d;
+}
+
+function fmtDate(d) {
+  return d.toLocaleDateString("en-GB", { month: "long", year: "numeric" });
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════
    CONSTANTS
    ═══════════════════════════════════════════════════════════════════════════════ */
 
@@ -125,6 +172,10 @@ export default function MortgageAnalyzer() {
 
   const [targetYears, setTargetYears] = useState("");
   const [extraPayment, setExtraPayment] = useState("");
+  const [adjustment, setAdjustment] = useState(null);
+  // User-editable overrides for rolled-forward figures
+  const [adjBalance, setAdjBalance] = useState("");
+  const [adjYears, setAdjYears] = useState("");
 
   const updateForm = (key, value) =>
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -184,10 +235,11 @@ export default function MortgageAnalyzer() {
   /* ─── Analysis ────────────────────────────────────────────────────────────── */
 
   const analysis = useMemo(() => {
-    const balance = parseFloat(form.outstandingBalance);
+    // Use user-edited override → rolled-forward → original form values
+    const balance = parseFloat(adjBalance) || (adjustment?.adjustedBalance) || parseFloat(form.outstandingBalance);
+    const years   = parseFloat(adjYears)   || (adjustment?.adjustedYears)   || parseFloat(form.remainingYears);
     const payment = parseFloat(form.monthlyPayment);
     const rate = parseFloat(form.interestRate);
-    const years = parseFloat(form.remainingYears);
     const extra = parseFloat(extraPayment) || 0;
     const target = parseFloat(targetYears) || 0;
     const overpaymentPct = parseFloat(form.overpaymentAllowance) || 10;
@@ -265,6 +317,55 @@ export default function MortgageAnalyzer() {
     form.outstandingBalance && form.monthlyPayment &&
     form.interestRate && form.remainingYears;
 
+  // Compute roll-forward adjustment whenever parsedData arrives with a statement date
+  useEffect(() => {
+    if (!parsedData?.statementDate) { setAdjustment(null); return; }
+    const stmtDate = parseStatementDate(parsedData.statementDate);
+    if (!stmtDate) { setAdjustment(null); return; }
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const months = monthsElapsedBetween(stmtDate, today);
+
+    // No adjustment needed this month or future-dated statement
+    if (months <= 0) { setAdjustment(null); return; }
+
+    const balance  = parseFloat(form.outstandingBalance);
+    const payment  = parseFloat(form.monthlyPayment);
+    const rate     = parseFloat(form.interestRate);
+    const years    = parseFloat(form.remainingYears);
+    if (!balance || !payment || !rate || !years) { setAdjustment(null); return; }
+
+    const rolled = rollForward(balance, rate, payment, months);
+    const adjY   = Math.max(0, Math.round((years * 12 - months) / 12 * 10) / 10);
+
+    // Check if fixed rate period has lapsed between statement date and today
+    const fixedEndDate = parseMonthYear(form.fixedUntil);
+    const fixedRateLapsed =
+      fixedEndDate &&
+      fixedEndDate > stmtDate &&
+      fixedEndDate <= today;
+
+    const adj = {
+      statementDate: stmtDate,
+      today,
+      months,
+      originalBalance: balance,
+      originalYears:   years,
+      adjustedBalance: rolled.balance,
+      adjustedYears:   adjY,
+      interestInGap:   rolled.totalInterest,
+      principalInGap:  rolled.totalPrincipal,
+      tooOld:          months > 24,
+      fixedRateLapsed,
+      fixedEndDate,
+    };
+    setAdjustment(adj);
+    setAdjBalance(String(rolled.balance));
+    setAdjYears(String(adjY));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [parsedData]);
+
   // Auto-trigger analysis after upload-only extraction completes
   useEffect(() => {
     if (inputMethod === "upload" && parsedData && isFormValid) {
@@ -284,6 +385,11 @@ export default function MortgageAnalyzer() {
         analysis={analysis}
         form={form}
         parsedData={parsedData}
+        adjustment={adjustment}
+        adjBalance={adjBalance}
+        setAdjBalance={setAdjBalance}
+        adjYears={adjYears}
+        setAdjYears={setAdjYears}
         extraPayment={extraPayment}
         setExtraPayment={setExtraPayment}
         targetYears={targetYears}
@@ -836,10 +942,125 @@ function FormField({ label, value, onChange, placeholder, prefix, suffix, requir
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════════
+   STATEMENT ADJUSTMENT CARD
+   ═══════════════════════════════════════════════════════════════════════════════ */
+
+function StatementAdjustmentCard({ adjustment, adjBalance, setAdjBalance, adjYears, setAdjYears, isIslamicFinance }) {
+  const [showEdit, setShowEdit] = useState(false);
+  const interestLabel = isIslamicFinance ? "rental charges" : "interest";
+
+  const {
+    statementDate, today, months,
+    originalBalance, adjustedBalance, adjustedYears,
+    interestInGap, principalInGap,
+    tooOld, fixedRateLapsed, fixedEndDate,
+  } = adjustment;
+
+  return (
+    <div style={{ marginBottom: 24 }}>
+      {/* Too-old warning */}
+      {tooOld && (
+        <div style={{ background: "#FEF3C7", border: "1px solid #FCD34D", borderRadius: 12, padding: "12px 16px", marginBottom: 12, display: "flex", gap: 10, alignItems: "flex-start" }}>
+          <AlertTriangle size={16} color="#D97706" style={{ flexShrink: 0, marginTop: 2 }} />
+          <p style={{ margin: 0, fontSize: 13, color: "#92400E" }}>
+            <strong>Your statement is over 2 years old.</strong> For the most accurate results, please upload a more recent statement.
+          </p>
+        </div>
+      )}
+
+      {/* Fixed rate lapsed warning */}
+      {fixedRateLapsed && (
+        <div style={{ background: "#FEF2F2", border: "1px solid #FECACA", borderRadius: 12, padding: "12px 16px", marginBottom: 12, display: "flex", gap: 10, alignItems: "flex-start" }}>
+          <AlertTriangle size={16} color="#DC2626" style={{ flexShrink: 0, marginTop: 2 }} />
+          <p style={{ margin: 0, fontSize: 13, color: "#991B1B" }}>
+            <strong>Your fixed rate period ended in {fmtDate(fixedEndDate)}.</strong> Your actual rate may have changed — please check with your lender and update the interest rate field if needed.
+          </p>
+        </div>
+      )}
+
+      {/* Main roll-forward panel */}
+      <div style={{ background: "white", border: "1px solid #E5E7EB", borderRadius: 16, padding: 24 }}>
+        {/* Header row with dates */}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 12, marginBottom: 20 }}>
+          <div>
+            <h3 style={{ fontSize: 16, fontWeight: 700, margin: "0 0 6px" }}>Figures updated to today</h3>
+            <p style={{ margin: 0, fontSize: 13, color: "#6B7280" }}>
+              Your statement is from <strong>{fmtDate(statementDate)}</strong>. We've calculated what's changed in the{" "}
+              <strong>{months} month{months !== 1 ? "s" : ""}</strong> since then.
+            </p>
+          </div>
+          <div style={{ display: "flex", gap: 16, fontSize: 12, color: "#9CA3AF", flexShrink: 0 }}>
+            <span>Statement: <strong style={{ color: "#374151" }}>{fmtDate(statementDate)}</strong></span>
+            <span>Analysis: <strong style={{ color: "#374151" }}>{fmtDate(today)}</strong></span>
+            <span>Adjusted: <strong style={{ color: "#6366F1" }}>{months}mo</strong></span>
+          </div>
+        </div>
+
+        {/* Stats grid */}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16, marginBottom: 20 }} className="grid-cols-4">
+          {[
+            { label: "Payments made", value: `${months}`, sub: "estimated" },
+            { label: "Current balance", value: fmt(adjustedBalance), sub: `was ${fmt(originalBalance)}`, highlight: true },
+            { label: "Principal paid", value: fmt(principalInGap), sub: "since statement", color: "#10B981" },
+            { label: `${isIslamicFinance ? "Rental charges" : "Interest"} paid`, value: fmt(interestInGap), sub: "since statement", color: "#F59E0B" },
+          ].map((s, i) => (
+            <div key={i} style={{ padding: "14px 16px", background: s.highlight ? "#EEF2FF" : "#F9FAFB", borderRadius: 10, border: s.highlight ? "1px solid #C7D2FE" : "1px solid #F3F4F6" }}>
+              <p style={{ margin: "0 0 4px", fontSize: 11, color: "#9CA3AF", fontWeight: 500, textTransform: "uppercase", letterSpacing: 0.4 }}>{s.label}</p>
+              <p style={{ margin: "0 0 2px", fontSize: 18, fontWeight: 700, color: s.color || (s.highlight ? "#4338CA" : "#111") }}>{s.value}</p>
+              <p style={{ margin: 0, fontSize: 11, color: "#9CA3AF" }}>{s.sub}</p>
+            </div>
+          ))}
+        </div>
+
+        <p style={{ margin: "0 0 12px", fontSize: 12, color: "#10B981", fontWeight: 500 }}>
+          ✓ All analysis below uses estimated figures as of {fmtDate(today)}
+        </p>
+
+        {/* Edit override toggle */}
+        <button
+          onClick={() => setShowEdit((v) => !v)}
+          style={{ background: "none", border: "none", cursor: "pointer", color: "#6366F1", fontSize: 13, fontWeight: 500, padding: 0 }}
+        >
+          {showEdit ? "▲ Hide" : "▼ Edit current figures"} — override if you know the exact numbers
+        </button>
+
+        {showEdit && (
+          <div style={{ marginTop: 16, paddingTop: 16, borderTop: "1px solid #F3F4F6", display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+            <div>
+              <label style={{ fontSize: 12, fontWeight: 600, color: "#374151", display: "block", marginBottom: 6 }}>Current balance (£)</label>
+              <input
+                type="text"
+                value={adjBalance}
+                onChange={(e) => setAdjBalance(e.target.value)}
+                style={{ width: "100%", padding: "10px 14px", borderRadius: 10, border: "1px solid #D1D5DB", fontSize: 14, boxSizing: "border-box", outline: "none" }}
+                placeholder={String(adjustedBalance)}
+              />
+            </div>
+            <div>
+              <label style={{ fontSize: 12, fontWeight: 600, color: "#374151", display: "block", marginBottom: 6 }}>Remaining term (years)</label>
+              <input
+                type="text"
+                value={adjYears}
+                onChange={(e) => setAdjYears(e.target.value)}
+                style={{ width: "100%", padding: "10px 14px", borderRadius: 10, border: "1px solid #D1D5DB", fontSize: 14, boxSizing: "border-box", outline: "none" }}
+                placeholder={String(adjustedYears)}
+              />
+            </div>
+            <p style={{ gridColumn: "1 / -1", margin: 0, fontSize: 12, color: "#9CA3AF" }}>
+              Editing these fields instantly updates all charts, scenarios, and recommendations below.
+            </p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════
    RESULTS DASHBOARD
    ═══════════════════════════════════════════════════════════════════════════════ */
 
-function ResultsDashboard({ analysis, form, parsedData, extraPayment, setExtraPayment, targetYears, setTargetYears, onBack }) {
+function ResultsDashboard({ analysis, form, parsedData, adjustment, adjBalance, setAdjBalance, adjYears, setAdjYears, extraPayment, setExtraPayment, targetYears, setTargetYears, onBack }) {
   const { data: session } = useSession();
   const router = useRouter();
   const [saving, setSaving] = useState(false);
@@ -1042,6 +1263,18 @@ function ResultsDashboard({ analysis, form, parsedData, extraPayment, setExtraPa
         <button onClick={onBack} style={{ background: "none", border: "none", cursor: "pointer", color: "#6366F1", fontSize: 14, fontWeight: 500, marginBottom: 24, padding: 0 }}>
           ← Edit mortgage details
         </button>
+
+        {/* Statement date roll-forward banner */}
+        {adjustment && (
+          <StatementAdjustmentCard
+            adjustment={adjustment}
+            adjBalance={adjBalance}
+            setAdjBalance={setAdjBalance}
+            adjYears={adjYears}
+            setAdjYears={setAdjYears}
+            isIslamicFinance={parsedData?.isIslamicFinance || false}
+          />
+        )}
 
         {/* Summary cards */}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 16, marginBottom: 32 }}>

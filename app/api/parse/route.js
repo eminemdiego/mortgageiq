@@ -36,10 +36,12 @@ Return ONLY a valid JSON object (no markdown, no explanation, just raw JSON):
   "originalLoanAmount": number or null,
   "originalTerm": number or null,
   "propertyAddress": string or null,
-  "isIslamicFinance": boolean
+  "isIslamicFinance": boolean,
+  "statementDate": string or null
 }
 
 Field rules:
+- statementDate: the "as at" / "statement date" / closing date of the statement in ISO format YYYY-MM-DD. This is the date the balance figures are valid as of — NOT the issue date or print date. For annual statements use the last day of the statement period. Return null if not found.
 - outstandingBalance: the closing/outstanding balance in £ (strip £ and commas, return number)
 - monthlyPayment: the regular monthly payment (for Islamic HPP: acquisition + rental total)
 - interestRate: annual rate as plain number (4.75% → 4.75)
@@ -218,6 +220,7 @@ export async function POST(request) {
       originalTerm:         str(extractedData.originalTerm),
       propertyAddress:      extractedData.propertyAddress || "",
       isIslamicFinance:     extractedData.isIslamicFinance || false,
+      statementDate:        extractedData.statementDate || null,
     });
   } catch (error) {
     console.error("Parse API unexpected error:", error);
