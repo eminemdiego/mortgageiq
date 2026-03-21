@@ -173,6 +173,8 @@ export default function MortgageAnalyzer() {
   const [targetYears, setTargetYears] = useState("");
   const [extraPayment, setExtraPayment] = useState("");
   const [adjustment, setAdjustment] = useState(null);
+  // "residential" | "buy_to_let" | "commercial" | "unclear" | null
+  const [mortgageCategory, setMortgageCategory] = useState(null);
   // User-editable overrides for rolled-forward figures
   const [adjBalance, setAdjBalance] = useState("");
   const [adjYears, setAdjYears] = useState("");
@@ -223,6 +225,7 @@ export default function MortgageAnalyzer() {
       }));
 
       setParsedData(extractedData);
+      setMortgageCategory(extractedData.propertyCategory || null);
       setParseError(null);
     } catch (error) {
       console.error("Error parsing file:", error);
@@ -366,14 +369,17 @@ export default function MortgageAnalyzer() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [parsedData]);
 
-  // Auto-trigger analysis after upload-only extraction completes
+  // Auto-trigger analysis after upload-only extraction completes (residential only)
   useEffect(() => {
-    if (inputMethod === "upload" && parsedData && isFormValid) {
+    if (
+      inputMethod === "upload" && parsedData && isFormValid &&
+      (mortgageCategory === "residential" || mortgageCategory === null)
+    ) {
       const timer = setTimeout(() => handleAnalyze(), 1500);
       return () => clearTimeout(timer);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [parsedData, inputMethod]);
+  }, [parsedData, inputMethod, mortgageCategory]);
 
   /* ─── Render: Landing ─────────────────────────────────────────────────────── */
 
@@ -416,7 +422,7 @@ export default function MortgageAnalyzer() {
             </p>
             <div style={{ display: "flex", gap: 16, justifyContent: "center", maxWidth: 560, margin: "0 auto" }}>
               {[
-                { id: "upload", icon: <Upload size={28} />, title: "Upload Statement", desc: "Upload your latest mortgage statement PDF and we'll extract the details" },
+                { id: "upload", icon: <Upload size={28} />, title: "Upload Statement", desc: "Upload your latest mortgage statement PDF and we'll extract the details", tag: "Fastest" },
                 { id: "manual", icon: <Calculator size={28} />, title: "Enter Manually", desc: "Input your mortgage details by hand — quick and straightforward" },
               ].map((opt) => (
                 <div key={opt.id} style={{ flex: 1 }}>
@@ -441,8 +447,23 @@ export default function MortgageAnalyzer() {
           />
         )}
 
-        {/* Upload-only: show analyse button once data is extracted */}
-        {inputMethod === "upload" && parsedData && isFormValid && (
+        {/* BTL / Commercial detected → redirect screen */}
+        {inputMethod === "upload" && parsedData && (mortgageCategory === "buy_to_let" || mortgageCategory === "commercial") && (
+          <BtlRedirectScreen
+            category={mortgageCategory}
+            onAnalyseAnyway={() => { setMortgageCategory("residential"); handleAnalyze(); }}
+          />
+        )}
+
+        {/* Unclear type → ask the user */}
+        {inputMethod === "upload" && parsedData && mortgageCategory === "unclear" && (
+          <PropertyTypeQuestion
+            onMyHome={() => { setMortgageCategory("residential"); handleAnalyze(); }}
+          />
+        )}
+
+        {/* Residential → show analyse button */}
+        {inputMethod === "upload" && parsedData && isFormValid && (mortgageCategory === "residential" || mortgageCategory === null) && (
           <div style={{ marginTop: 20, textAlign: "center" }}>
             <div style={{ marginBottom: 12, fontSize: 13, color: "#10B981", fontWeight: 500 }}>
               ✓ Details extracted — generating your analysis…
@@ -731,15 +752,21 @@ function LandingPage({ onStart }) {
           Upload your mortgage statement or enter your details. Our calculator analyses your mortgage and shows you exactly how to save thousands in interest and pay it off faster.
         </p>
 
-        <div style={{ display: "flex", gap: 16, justifyContent: "center", flexWrap: "wrap", marginBottom: 16 }}>
-          <button onClick={onStart} style={{ ...S.heroBtn }}>
-            Analyse My Mortgage <ArrowRight size={18} />
-          </button>
-          <button onClick={() => window.location.href = "/portfolio"} style={{ ...S.heroBtn, background: "linear-gradient(135deg, #7C3AED, #6366F1)", boxShadow: "0 4px 20px rgba(124,58,237,0.3)" }}>
-            <Building2 size={18} /> Portfolio Manager
-          </button>
+        <div style={{ display: "flex", gap: 20, justifyContent: "center", flexWrap: "wrap", marginBottom: 8 }}>
+          <div style={{ textAlign: "center" }}>
+            <button onClick={onStart} style={{ ...S.heroBtn }}>
+              Analyse My Mortgage <ArrowRight size={18} />
+            </button>
+            <p style={{ marginTop: 8, fontSize: 12, color: "#9CA3AF" }}>For personal residential mortgages</p>
+          </div>
+          <div style={{ textAlign: "center" }}>
+            <button onClick={() => window.location.href = "/portfolio"} style={{ ...S.heroBtn, background: "linear-gradient(135deg, #7C3AED, #6366F1)", boxShadow: "0 4px 20px rgba(124,58,237,0.3)" }}>
+              <Building2 size={18} /> Portfolio Manager
+            </button>
+            <p style={{ marginTop: 8, fontSize: 12, color: "#9CA3AF" }}>For buy-to-let &amp; investment properties</p>
+          </div>
         </div>
-        <p style={{ marginTop: 8, fontSize: 13, color: "#999" }}>Free to use — no sign-up required</p>
+        <p style={{ marginTop: 4, fontSize: 13, color: "#999" }}>Free to use — no sign-up required</p>
         </div>
       </div>
 
@@ -823,6 +850,185 @@ function MethodCard({ icon, title, desc, onClick }) {
       <div style={{ fontWeight: 600, fontSize: 16, marginBottom: 8 }}>{title}</div>
       <div style={{ fontSize: 13, color: "#666", lineHeight: 1.5 }}>{desc}</div>
     </button>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   COUNT-UP ANIMATION
+   ═══════════════════════════════════════════════════════════════════════════════ */
+
+function CountUp({ target, duration = 1800, prefix = "£" }) {
+  const [value, setValue] = useState(0);
+  useEffect(() => {
+    if (!target) return;
+    let rafId;
+    const startTime = performance.now();
+    const tick = (now) => {
+      const elapsed = now - startTime;
+      const progress = Math.min(elapsed / duration, 1);
+      const eased = 1 - Math.pow(1 - progress, 3); // cubic ease-out
+      setValue(Math.round(target * eased));
+      if (progress < 1) rafId = requestAnimationFrame(tick);
+    };
+    rafId = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(rafId);
+  }, [target, duration]);
+  return `${prefix}${value.toLocaleString("en-GB")}`;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   INTEREST HERO
+   ═══════════════════════════════════════════════════════════════════════════════ */
+
+function InterestHero({ totalInterest, balance, origLoan, interestRate, monthlyPayment, isIslamicFinance }) {
+  const interestLabel = isIslamicFinance ? "rental payments" : "interest";
+  const totalRepaid = totalInterest + balance;
+
+  const scenarios = [100, 250, 500].map((extra) => {
+    const base = buildAmortization(balance, interestRate, monthlyPayment);
+    const withExtra = buildAmortization(balance, interestRate, monthlyPayment, extra);
+    return { extra, saved: base.totalInterest - withExtra.totalInterest };
+  });
+
+  return (
+    <div style={{
+      background: "white",
+      borderRadius: 20,
+      border: "1px solid #FECACA",
+      borderTop: "5px solid #DC2626",
+      padding: "44px 40px 36px",
+      marginBottom: 32,
+      boxShadow: "0 4px 24px rgba(220,38,38,0.06)",
+    }}>
+      {/* Main headline */}
+      <div style={{ textAlign: "center", marginBottom: 36 }}>
+        <p style={{ fontSize: 18, fontWeight: 500, color: "#6B7280", marginBottom: 10, letterSpacing: "-0.01em" }}>
+          You&apos;re set to pay
+        </p>
+        <p style={{
+          fontSize: 62,
+          fontWeight: 800,
+          color: "#DC2626",
+          lineHeight: 1,
+          marginBottom: 10,
+          fontVariantNumeric: "tabular-nums",
+          letterSpacing: "-0.03em",
+        }}>
+          <CountUp target={totalInterest} />
+        </p>
+        <p style={{ fontSize: 20, fontWeight: 600, color: "#374151", marginBottom: 18 }}>
+          in {interestLabel}
+        </p>
+        <p style={{ fontSize: 15, color: "#6B7280", maxWidth: 540, margin: "0 auto", lineHeight: 1.6 }}>
+          That&apos;s on top of your{" "}
+          <strong style={{ color: "#111" }}>{fmt(balance)}</strong>{" "}
+          balance — meaning you&apos;ll pay back{" "}
+          <strong style={{ color: "#111" }}>{fmt(totalRepaid)}</strong> in total
+          {origLoan ? ` for a home that cost ${fmt(origLoan)}` : ""}.
+        </p>
+      </div>
+
+      {/* Quick-win cards */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 14, marginBottom: 28 }}>
+        {scenarios.map((s) => (
+          <div key={s.extra} style={{
+            background: "linear-gradient(135deg, #ECFDF5, #D1FAE5)",
+            border: "1px solid #A7F3D0",
+            borderRadius: 14,
+            padding: "20px 16px",
+            textAlign: "center",
+          }}>
+            <p style={{ fontSize: 13, color: "#374151", marginBottom: 8 }}>
+              Overpay <strong>£{s.extra}/month</strong>
+            </p>
+            <p style={{ fontSize: 26, fontWeight: 800, color: "#059669", marginBottom: 4, letterSpacing: "-0.02em" }}>
+              {fmt(s.saved)}
+            </p>
+            <p style={{ fontSize: 12, color: "#6B7280" }}>saved in {interestLabel}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* Scroll CTA */}
+      <div style={{ textAlign: "center" }}>
+        <p style={{ fontSize: 14, color: "#9CA3AF", display: "inline-flex", alignItems: "center", gap: 6 }}>
+          <ChevronDown size={16} color="#9CA3AF" />
+          Scroll down to see exactly how to reduce this
+        </p>
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   BTL / COMMERCIAL REDIRECT SCREEN
+   ═══════════════════════════════════════════════════════════════════════════════ */
+
+function BtlRedirectScreen({ category, onAnalyseAnyway }) {
+  const router = useRouter();
+  const isBtl = category === "buy_to_let";
+  return (
+    <div style={{ maxWidth: 560, margin: "32px auto 0", background: "white", border: "1px solid #E5E7EB", borderRadius: 20, padding: "44px 40px", textAlign: "center" }}>
+      <div style={{ width: 64, height: 64, borderRadius: 18, background: "#EEF2FF", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 24px", color: "#6366F1" }}>
+        <Building2 size={28} />
+      </div>
+      <h2 style={{ fontSize: 21, fontWeight: 700, marginBottom: 14, lineHeight: 1.3 }}>
+        This looks like a {isBtl ? "buy-to-let" : "commercial"} mortgage
+      </h2>
+      <p style={{ fontSize: 15, color: "#6B7280", lineHeight: 1.7, marginBottom: 36 }}>
+        Our mortgage analyser is designed for personal residential mortgages.
+        For {isBtl ? "buy-to-let and investment" : "commercial"} properties, we have a dedicated
+        Portfolio Manager with tools built specifically for landlords — including cash flow analysis,
+        yield calculations, and tenant management.
+      </p>
+      <button
+        onClick={() => router.push("/portfolio")}
+        style={{ width: "100%", padding: "14px 0", background: "linear-gradient(135deg, #6366F1, #4F46E5)", color: "white", border: "none", borderRadius: 12, fontSize: 16, fontWeight: 600, cursor: "pointer", marginBottom: 16, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}
+      >
+        <Building2 size={18} /> Go to Portfolio Manager
+      </button>
+      <button
+        onClick={onAnalyseAnyway}
+        style={{ background: "none", border: "none", cursor: "pointer", color: "#9CA3AF", fontSize: 13, textDecoration: "underline" }}
+      >
+        Analyse anyway — I know this is a residential mortgage
+      </button>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   PROPERTY TYPE QUESTION (when type is unclear)
+   ═══════════════════════════════════════════════════════════════════════════════ */
+
+function PropertyTypeQuestion({ onMyHome }) {
+  const router = useRouter();
+  return (
+    <div style={{ maxWidth: 480, margin: "32px auto 0", background: "white", border: "1px solid #E5E7EB", borderRadius: 20, padding: "44px 40px", textAlign: "center" }}>
+      <div style={{ width: 56, height: 56, borderRadius: 16, background: "#EEF2FF", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 20px", color: "#6366F1" }}>
+        <Info size={24} />
+      </div>
+      <h2 style={{ fontSize: 20, fontWeight: 700, marginBottom: 12 }}>
+        Is this your personal home or a rental property?
+      </h2>
+      <p style={{ fontSize: 14, color: "#6B7280", marginBottom: 32, lineHeight: 1.6 }}>
+        We couldn&apos;t automatically detect the mortgage type from your document.
+      </p>
+      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        <button
+          onClick={onMyHome}
+          style={{ padding: "14px 24px", background: "linear-gradient(135deg, #6366F1, #4F46E5)", color: "white", border: "none", borderRadius: 12, fontSize: 15, fontWeight: 600, cursor: "pointer" }}
+        >
+          My personal home
+        </button>
+        <button
+          onClick={() => router.push("/portfolio")}
+          style={{ padding: "14px 24px", background: "white", color: "#374151", border: "2px solid #E5E7EB", borderRadius: 12, fontSize: 15, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}
+        >
+          <Building2 size={16} /> Investment / buy-to-let property
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -1269,6 +1475,15 @@ function ResultsDashboard({ analysis, form, parsedData, adjustment, adjBalance, 
           ← Edit mortgage details
         </button>
 
+        <InterestHero
+          totalInterest={current.totalInterest}
+          balance={balance}
+          origLoan={parseFloat(form.originalLoanAmount) || null}
+          interestRate={parseFloat(form.interestRate)}
+          monthlyPayment={parseFloat(form.monthlyPayment)}
+          isIslamicFinance={isIslamicFinance}
+        />
+
         {/* Statement date roll-forward banner */}
         {adjustment && (
           <StatementAdjustmentCard
@@ -1297,15 +1512,6 @@ function ResultsDashboard({ analysis, form, parsedData, adjustment, adjBalance, 
               <div style={{ fontSize: 24, fontWeight: 700 }}>{c.value}</div>
             </div>
           ))}
-        </div>
-
-        {/* Interest warning */}
-        <div style={{ background: "linear-gradient(135deg, #FEF3C7, #FDE68A)", borderRadius: 16, padding: "20px 24px", marginBottom: 32, display: "flex", alignItems: "center", gap: 16 }}>
-          <AlertTriangle size={24} color="#D97706" />
-          <div>
-            <p style={{ fontWeight: 600, color: "#92400E", margin: "0 0 4px" }}>Total interest at current rate: {fmt(current.totalInterest)}</p>
-            <p style={{ fontSize: 13, color: "#A16207", margin: 0 }}>That's on top of your {fmt(balance)} balance. Read on to see how you can significantly reduce this.</p>
-          </div>
         </div>
 
         {/* Mortgage Summary Card */}
