@@ -61,6 +61,15 @@ Field rules:
 If a field cannot be found, use null. Never guess or invent values.`;
 
 export async function POST(request) {
+  // Check API key upfront for a clear error
+  if (!process.env.ANTHROPIC_API_KEY) {
+    console.error("ANTHROPIC_API_KEY is not set");
+    return Response.json(
+      { error: "Server configuration error: API key not set. Please contact support." },
+      { status: 500 }
+    );
+  }
+
   try {
     const formData = await request.formData();
     const file = formData.get("file");
@@ -75,18 +84,17 @@ export async function POST(request) {
     let messageContent;
 
     if (isPdf) {
-      // Extract text via pdf-parse first for reliable text-based parsing
+      // Try pdf-parse for text extraction; fall back to Claude vision if it fails
       let documentText = null;
       try {
         const parser = new PDFParse({ data: buffer });
         const pdfData = await parser.getText();
         documentText = pdfData.text?.trim();
       } catch (err) {
-        console.error("pdf-parse extraction failed, falling back to Claude vision:", err.message);
+        console.error("pdf-parse failed, using Claude vision:", err.message);
       }
 
       if (documentText && documentText.length > 100) {
-        // Good text extraction — send as text to Claude
         messageContent = [
           {
             type: "text",
@@ -94,7 +102,7 @@ export async function POST(request) {
           },
         ];
       } else {
-        // Scanned/image PDF — send as base64 document for Claude vision
+        // Scanned/image PDF — send as base64 document
         messageContent = [
           {
             type: "document",
@@ -123,11 +131,22 @@ export async function POST(request) {
       ];
     }
 
-    const response = await client.messages.create({
-      model: "claude-opus-4-6",
-      max_tokens: 1024,
-      messages: [{ role: "user", content: messageContent }],
-    });
+    let response;
+    try {
+      response = await client.messages.create({
+        model: "claude-sonnet-4-6",
+        max_tokens: 1024,
+        messages: [{ role: "user", content: messageContent }],
+      });
+    } catch (err) {
+      console.error("Claude API error:", err);
+      const msg = err?.status === 401
+        ? "Invalid API key. Please check server configuration."
+        : err?.status === 529 || err?.status === 429
+        ? "AI service is busy. Please try again in a moment."
+        : "AI service error. Please try again or enter details manually.";
+      return Response.json({ error: msg }, { status: 502 });
+    }
 
     const responseText = response.content[0].text;
 
@@ -138,7 +157,7 @@ export async function POST(request) {
     } catch {
       console.error("Failed to parse Claude response:", responseText);
       return Response.json(
-        { error: "Failed to parse document. Please enter details manually." },
+        { error: "Failed to read document structure. Please enter details manually." },
         { status: 400 }
       );
     }
@@ -165,9 +184,9 @@ export async function POST(request) {
 
     return Response.json(result, { status: 200 });
   } catch (error) {
-    console.error("Parse API error:", error);
+    console.error("Parse API unexpected error:", error);
     return Response.json(
-      { error: "Failed to process file. Please try again or enter details manually." },
+      { error: "Unexpected error processing file. Please try again or enter details manually." },
       { status: 500 }
     );
   }
