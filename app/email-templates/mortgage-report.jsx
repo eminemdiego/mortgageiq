@@ -153,7 +153,7 @@ export function MortgageReportEmail({ form, analysis }) {
           </div>
 
           <div class="footer">
-            <p>MortgageIQ — AI-Powered Mortgage Analysis</p>
+            <p>Mortgage AI Calc — AI-Powered Mortgage Analysis</p>
             <p style="margin: 8px 0 0;">This report was generated at ${new Date().toLocaleTimeString("en-GB")}</p>
           </div>
         </div>

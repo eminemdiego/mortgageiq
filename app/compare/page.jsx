@@ -160,7 +160,7 @@ export default function MortgageComparison() {
           <div style={S.logo}>
             <Banknote size={18} color="white" />
           </div>
-          <span style={{ fontWeight: 700, fontSize: 18 }}>MortgageIQ</span>
+          <span style={{ fontWeight: 700, fontSize: 18 }}>Mortgage AI Calc</span>
         </div>
         <button onClick={() => router.push("/")} style={S.backBtn}>
           <ArrowLeft size={16} /> Back to analyser

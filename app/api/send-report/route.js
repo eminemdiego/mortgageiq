@@ -36,7 +36,7 @@ export async function POST(request) {
 
     // Send email via Resend
     const response = await resend.emails.send({
-      from: "MortgageIQ <noreply@mortgageiq.com>",
+      from: "Mortgage AI Calc <noreply@mortgageiq.com>",
       to: recipientEmail,
       subject: `Your Mortgage Analysis Report - ${new Date().toLocaleDateString()}`,
       html: htmlContent,

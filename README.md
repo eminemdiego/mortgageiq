@@ -1,4 +1,4 @@
-# MortgageIQ — AI-Powered Mortgage Analyser
+# Mortgage AI Calc — AI-Powered Mortgage Analyser
 
 ## Quick Deploy (5 minutes)
 
@@ -11,7 +11,7 @@
 cd mortgageiq
 git init
 git add .
-git commit -m "Initial commit — MortgageIQ v1"
+git commit -m "Initial commit — Mortgage AI Calc v1"
 git branch -M main
 git remote add origin https://github.com/YOUR_USERNAME/mortgageiq.git
 git push -u origin main

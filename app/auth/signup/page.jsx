@@ -78,7 +78,7 @@ export default function SignUp() {
             <div style={{ width: 40, height: 40, borderRadius: 10, background: "linear-gradient(135deg, #6366F1, #4F46E5)", display: "flex", alignItems: "center", justifyContent: "center" }}>
               <Banknote size={20} color="white" />
             </div>
-            <span style={{ fontWeight: 700, fontSize: 20 }}>MortgageIQ</span>
+            <span style={{ fontWeight: 700, fontSize: 20 }}>Mortgage AI Calc</span>
           </div>
           <h1 style={{ fontSize: 28, fontWeight: 700, marginBottom: 8 }}>Create Account</h1>
           <p style={{ fontSize: 14, color: "#666" }}>

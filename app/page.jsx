@@ -440,7 +440,7 @@ function Header({ onBack }) {
         <div style={{ width: 34, height: 34, borderRadius: 10, background: "linear-gradient(135deg, #6366F1, #4F46E5)", display: "flex", alignItems: "center", justifyContent: "center" }}>
           <Banknote size={18} color="white" />
         </div>
-        <span style={{ fontWeight: 700, fontSize: 18 }}>MortgageIQ</span>
+        <span style={{ fontWeight: 700, fontSize: 18 }}>Mortgage AI Calc</span>
       </div>
       <div style={{ display: "flex", gap: 24, fontSize: 14, color: "#666", alignItems: "center" }}>
         <span style={{ cursor: "pointer" }}>How it works</span>
@@ -670,7 +670,7 @@ function LandingPage({ onStart }) {
 
       {/* Footer */}
       <div style={{ borderTop: "1px solid #E5E7EB", padding: "24px 20px", textAlign: "center" }}>
-        <p style={{ fontSize: 13, color: "#999", margin: 0 }}>MortgageIQ is for informational purposes only and does not constitute financial advice. Always consult a qualified mortgage adviser.</p>
+        <p style={{ fontSize: 13, color: "#999", margin: 0 }}>Mortgage AI Calc is for informational purposes only and does not constitute financial advice. Always consult a qualified mortgage adviser.</p>
       </div>
     </div>
   );
@@ -1624,7 +1624,7 @@ function ResultsDashboard({ analysis, form, parsedData, extraPayment, setExtraPa
         {/* Disclaimer */}
         <div style={{ padding: "16px 20px", background: "#F9FAFB", borderRadius: 12, border: "1px solid #E5E7EB", marginBottom: 40 }}>
           <p style={{ margin: 0, fontSize: 12, color: "#999", lineHeight: 1.6 }}>
-            <strong>Disclaimer:</strong> MortgageIQ provides estimates for informational purposes only. Actual figures may vary based on your lender's specific terms, fees, and calculation methods. This does not constitute financial advice. Always consult a qualified mortgage adviser before making changes to your mortgage.
+            <strong>Disclaimer:</strong> Mortgage AI Calc provides estimates for informational purposes only. Actual figures may vary based on your lender's specific terms, fees, and calculation methods. This does not constitute financial advice. Always consult a qualified mortgage adviser before making changes to your mortgage.
           </p>
         </div>
       </div>

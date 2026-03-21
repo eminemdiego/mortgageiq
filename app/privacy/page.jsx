@@ -10,7 +10,7 @@ export default function PrivacyPolicy() {
       <div style={{ background: "white", borderBottom: "1px solid #E5E7EB", padding: "16px 24px" }}>
         <div style={{ maxWidth: 760, margin: "0 auto", display: "flex", alignItems: "center", gap: 16 }}>
           <Link href="/" style={{ display: "flex", alignItems: "center", gap: 6, color: "#6366F1", textDecoration: "none", fontSize: 14, fontWeight: 500 }}>
-            <ArrowLeft size={16} /> Back to MortgageIQ
+            <ArrowLeft size={16} /> Back to Mortgage AI Calc
           </Link>
         </div>
       </div>
