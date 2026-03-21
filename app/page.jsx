@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useMemo } from "react";
+import { useSession, signOut } from "next-auth/react";
+import { useRouter } from "next/navigation";
 import {
   AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer,
@@ -8,7 +10,7 @@ import {
 import {
   Upload, Calculator, TrendingDown, Clock, PoundSterling,
   FileText, AlertTriangle, CheckCircle, Info, ArrowRight,
-  Banknote, Target, Zap, Shield, ChevronDown,
+  Banknote, Target, Zap, Shield, ChevronDown, Mail, Loader,
 } from "lucide-react";
 
 /* ═══════════════════════════════════════════════════════════════════════════════
@@ -102,6 +104,8 @@ export default function MortgageAnalyzer() {
   const [uploadedFile, setUploadedFile] = useState(null);
   const [dragOver, setDragOver] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [parsing, setParsing] = useState(false);
+  const [parseError, setParseError] = useState(null);
 
   const [form, setForm] = useState({
     outstandingBalance: "",
@@ -123,6 +127,53 @@ export default function MortgageAnalyzer() {
 
   const updateForm = (key, value) =>
     setForm((prev) => ({ ...prev, [key]: value }));
+
+  // Handle file upload and parsing
+  const handleFileUpload = async (file) => {
+    if (!file) return;
+    
+    setUploadedFile(file);
+    setParsing(true);
+    setParseError(null);
+
+    const formData = new FormData();
+    formData.append("file", file);
+
+    try {
+      const response = await fetch("/api/parse", {
+        method: "POST",
+        body: formData,
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        setParseError(errorData.error || "Failed to parse document");
+        setParsing(false);
+        return;
+      }
+
+      const extractedData = await response.json();
+      
+      // Auto-fill form with extracted data
+      setForm((prev) => ({
+        ...prev,
+        outstandingBalance: extractedData.outstandingBalance || prev.outstandingBalance,
+        monthlyPayment: extractedData.monthlyPayment || prev.monthlyPayment,
+        interestRate: extractedData.interestRate || prev.interestRate,
+        remainingYears: extractedData.remainingYears || prev.remainingYears,
+        bank: extractedData.bank || prev.bank,
+        mortgageType: extractedData.mortgageType || prev.mortgageType,
+        rateType: extractedData.rateType || prev.rateType,
+      }));
+
+      setParseError(null);
+    } catch (error) {
+      console.error("Error parsing file:", error);
+      setParseError("Failed to process file. Please try again or enter details manually.");
+    } finally {
+      setParsing(false);
+    }
+  };
 
   /* ─── Analysis ────────────────────────────────────────────────────────────── */
 
@@ -241,6 +292,9 @@ export default function MortgageAnalyzer() {
             setUploadedFile={setUploadedFile}
             dragOver={dragOver}
             setDragOver={setDragOver}
+            onFileUpload={handleFileUpload}
+            parsing={parsing}
+            parseError={parseError}
           />
         )}
 
@@ -328,6 +382,10 @@ export default function MortgageAnalyzer() {
    ═══════════════════════════════════════════════════════════════════════════════ */
 
 function Header({ onBack }) {
+  const { data: session } = useSession();
+  const router = useRouter();
+  const [showMenu, setShowMenu] = useState(false);
+
   return (
     <div style={{ borderBottom: "1px solid #E5E7EB", background: "white", padding: "14px 24px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }} onClick={onBack}>
@@ -339,7 +397,83 @@ function Header({ onBack }) {
       <div style={{ display: "flex", gap: 24, fontSize: 14, color: "#666", alignItems: "center" }}>
         <span style={{ cursor: "pointer" }}>How it works</span>
         <span style={{ cursor: "pointer" }}>Pricing</span>
-        <button style={{ background: "#111", color: "white", border: "none", borderRadius: 8, padding: "8px 18px", fontSize: 13, fontWeight: 500, cursor: "pointer" }}>Sign in</button>
+        <span
+          onClick={() => router.push("/compare")}
+          style={{ cursor: "pointer", color: "#6366F1", fontWeight: 500 }}
+        >
+          Compare Deals
+        </span>
+        {session?.user ? (
+          <div style={{ position: "relative" }}>
+            <button
+              onClick={() => setShowMenu(!showMenu)}
+              style={{
+                background: "white",
+                border: "1px solid #D1D5DB",
+                borderRadius: 8,
+                padding: "8px 18px",
+                fontSize: 13,
+                fontWeight: 500,
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+              }}
+            >
+              <div
+                style={{
+                  width: 24,
+                  height: 24,
+                  borderRadius: "50%",
+                  background: "linear-gradient(135deg, #6366F1, #4F46E5)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  color: "white",
+                  fontSize: 12,
+                  fontWeight: 600,
+                }}
+              >
+                {session.user.name?.charAt(0) || session.user.email?.charAt(0)}
+              </div>
+              {session.user.name || "Account"}
+            </button>
+            {showMenu && (
+              <div style={{ position: "absolute", top: "100%", right: 0, marginTop: 8, background: "white", border: "1px solid #E5E7EB", borderRadius: 10, boxShadow: "0 4px 20px rgba(0,0,0,0.1)", minWidth: 200, zIndex: 10 }}>
+                <button
+                  onClick={() => {
+                    router.push("/analyses");
+                    setShowMenu(false);
+                  }}
+                  style={{ width: "100%", textAlign: "left", padding: "12px 16px", background: "none", border: "none", cursor: "pointer", fontSize: 14, color: "#111", borderBottom: "1px solid #F3F4F6" }}
+                >
+                  My Analyses
+                </button>
+                <button
+                  onClick={() => {
+                    signOut();
+                    setShowMenu(false);
+                  }}
+                  style={{ width: "100%", textAlign: "left", padding: "12px 16px", background: "none", border: "none", cursor: "pointer", fontSize: 14, color: "#EF4444" }}
+                >
+                  Sign out
+                </button>
+              </div>
+            )}
+          </div>
+        ) : (
+          <>
+            <button onClick={() => router.push("/auth/signin")} style={{ background: "none", border: "none", cursor: "pointer", color: "#666", fontSize: 13, fontWeight: 500 }}>
+              Sign in
+            </button>
+            <button
+              onClick={() => router.push("/auth/signup")}
+              style={{ background: "#111", color: "white", border: "none", borderRadius: 8, padding: "8px 18px", fontSize: 13, fontWeight: 500, cursor: "pointer" }}
+            >
+              Sign up
+            </button>
+          </>
+        )}
       </div>
     </div>
   );
@@ -454,27 +588,34 @@ function MethodCard({ icon, title, desc, onClick }) {
   );
 }
 
-function UploadSection({ uploadedFile, setUploadedFile, dragOver, setDragOver }) {
+function UploadSection({ uploadedFile, setUploadedFile, dragOver, setDragOver, onFileUpload, parsing, parseError }) {
   return (
     <div style={{ marginBottom: 32 }}>
       <h3 style={{ fontSize: 18, fontWeight: 600, marginBottom: 16 }}>Upload Mortgage Statement</h3>
       <div
         onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
         onDragLeave={() => setDragOver(false)}
-        onDrop={(e) => { e.preventDefault(); setDragOver(false); setUploadedFile(e.dataTransfer.files[0]); }}
-        onClick={() => document.getElementById("fileInput")?.click()}
+        onDrop={(e) => { e.preventDefault(); setDragOver(false); onFileUpload(e.dataTransfer.files[0]); }}
+        onClick={() => !parsing && document.getElementById("fileInput")?.click()}
         style={{
           border: `2px dashed ${dragOver ? "#6366F1" : "#D1D5DB"}`,
           borderRadius: 16, padding: "48px 32px", textAlign: "center",
-          background: dragOver ? "#EEF2FF" : "white", transition: "all 0.2s", cursor: "pointer",
+          background: dragOver ? "#EEF2FF" : "white", transition: "all 0.2s", cursor: parsing ? "default" : "pointer",
+          opacity: parsing ? 0.6 : 1,
         }}
       >
-        <input id="fileInput" type="file" accept=".pdf,.jpg,.png" style={{ display: "none" }} onChange={(e) => setUploadedFile(e.target.files[0])} />
-        {uploadedFile ? (
+        <input id="fileInput" type="file" accept=".pdf,.jpg,.png" style={{ display: "none" }} onChange={(e) => onFileUpload(e.target.files[0])} disabled={parsing} />
+        {parsing ? (
+          <div>
+            <div style={{ width: 40, height: 40, borderRadius: "50%", border: "3px solid #E5E7EB", borderTopColor: "#6366F1", margin: "0 auto 12px", animation: "spin 0.8s linear infinite" }} />
+            <p style={{ fontWeight: 600, marginBottom: 4 }}>Analysing your document...</p>
+            <p style={{ fontSize: 13, color: "#666" }}>Extracting mortgage details with AI</p>
+          </div>
+        ) : uploadedFile ? (
           <div>
             <CheckCircle size={40} color="#10B981" style={{ marginBottom: 12 }} />
             <p style={{ fontWeight: 600, marginBottom: 4 }}>{uploadedFile.name}</p>
-            <p style={{ fontSize: 13, color: "#666" }}>File ready for AI analysis</p>
+            <p style={{ fontSize: 13, color: "#666" }}>File analysed and details extracted</p>
             <button onClick={(e) => { e.stopPropagation(); setUploadedFile(null); }} style={{ marginTop: 12, background: "none", border: "1px solid #D1D5DB", borderRadius: 8, padding: "6px 16px", cursor: "pointer", fontSize: 13, color: "#666" }}>Remove</button>
           </div>
         ) : (
@@ -485,6 +626,12 @@ function UploadSection({ uploadedFile, setUploadedFile, dragOver, setDragOver })
           </div>
         )}
       </div>
+      {parseError && (
+        <div style={{ marginTop: 12, padding: "12px 16px", background: "#FEE2E2", borderRadius: 10, display: "flex", alignItems: "flex-start", gap: 10 }}>
+          <AlertTriangle size={16} color="#DC2626" style={{ flexShrink: 0, marginTop: 2 }} />
+          <p style={{ fontSize: 12, color: "#991B1B", lineHeight: 1.5, margin: 0 }}>{parseError}</p>
+        </div>
+      )}
       <div style={{ marginTop: 12, padding: "12px 16px", background: "#FEF3C7", borderRadius: 10, display: "flex", alignItems: "flex-start", gap: 10 }}>
         <Shield size={16} color="#D97706" style={{ flexShrink: 0, marginTop: 2 }} />
         <p style={{ fontSize: 12, color: "#92400E", lineHeight: 1.5, margin: 0 }}>Your document is processed securely and never stored on our servers. All analysis happens in real-time and data is deleted immediately after.</p>
@@ -529,8 +676,100 @@ function FormField({ label, value, onChange, placeholder, prefix, suffix, requir
    ═══════════════════════════════════════════════════════════════════════════════ */
 
 function ResultsDashboard({ analysis, form, extraPayment, setExtraPayment, targetYears, setTargetYears, onBack }) {
+  const { data: session } = useSession();
+  const router = useRouter();
+  const [saving, setSaving] = useState(false);
+  const [saveSaved, setSaveSaved] = useState(false);
+  const [showEmailModal, setShowEmailModal] = useState(false);
+  const [emailAddress, setEmailAddress] = useState("");
+  const [sendingEmail, setSendingEmail] = useState(false);
+  const [emailSent, setEmailSent] = useState(false);
+  const [emailError, setEmailError] = useState("");
+
   const { current, withExtra, targetPayment, targetAmort, rateScenarios, overpaymentScenarios, maxMonthlyOverpayment, maxAnnualOverpayment, balance } = analysis;
   const currentYears = (current.totalMonths / 12).toFixed(1);
+
+  const handleSaveAnalysis = async () => {
+    if (!session?.user?.id) {
+      router.push("/auth/signin");
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const response = await fetch("/api/analyses", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: `${form.bank || "Mortgage"} Analysis - ${new Date().toLocaleDateString()}`,
+          outstandingBalance: form.outstandingBalance,
+          monthlyPayment: form.monthlyPayment,
+          interestRate: form.interestRate,
+          remainingYears: form.remainingYears,
+          mortgageType: form.mortgageType,
+          rateType: form.rateType,
+          bank: form.bank,
+          analysisData: analysis,
+        }),
+      });
+
+      if (!response.ok) throw new Error("Failed to save");
+      setSaveSaved(true);
+      setTimeout(() => setSaveSaved(false), 3000);
+    } catch (error) {
+      console.error("Error saving analysis:", error);
+      alert("Failed to save analysis. Please try again.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleSendReport = async (e) => {
+    e.preventDefault();
+    
+    if (!emailAddress.trim()) {
+      setEmailError("Please enter an email address");
+      return;
+    }
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(emailAddress)) {
+      setEmailError("Please enter a valid email address");
+      return;
+    }
+
+    setSendingEmail(true);
+    setEmailError("");
+
+    try {
+      const response = await fetch("/api/send-report", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          recipientEmail: emailAddress,
+          form,
+          analysis,
+        }),
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || "Failed to send email");
+      }
+
+      setEmailSent(true);
+      setEmailAddress("");
+      setTimeout(() => {
+        setEmailSent(false);
+        setShowEmailModal(false);
+      }, 2000);
+    } catch (error) {
+      console.error("Error sending email:", error);
+      setEmailError(error.message || "Failed to send email. Please try again.");
+    } finally {
+      setSendingEmail(false);
+    }
+  };
 
   return (
     <div style={{ minHeight: "100vh", background: "#F3F4F6", fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" }}>
@@ -698,7 +937,53 @@ function ResultsDashboard({ analysis, form, extraPayment, setExtraPayment, targe
 
         {/* AI Recommendations */}
         <div style={{ background: "linear-gradient(135deg, #6366F1, #4F46E5)", borderRadius: 16, padding: 28, marginBottom: 24, color: "white" }}>
-          <h3 style={{ fontSize: 18, fontWeight: 600, marginBottom: 16 }}>AI Recommendations</h3>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16, gap: 12, flexWrap: "wrap" }}>
+            <h3 style={{ fontSize: 18, fontWeight: 600, margin: 0 }}>AI Recommendations</h3>
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <button
+                onClick={() => setShowEmailModal(true)}
+                style={{
+                  padding: "8px 16px",
+                  background: "rgba(255,255,255,0.2)",
+                  color: "white",
+                  border: "1px solid rgba(255,255,255,0.3)",
+                  borderRadius: 8,
+                  fontSize: 13,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  opacity: 1,
+                  transition: "all 0.2s",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                }}
+                onMouseEnter={(e) => (e.target.style.background = "rgba(255,255,255,0.3)")}
+                onMouseLeave={(e) => (e.target.style.background = "rgba(255,255,255,0.2)")}
+              >
+                <Mail size={14} /> Email Report
+              </button>
+              {session?.user && (
+                <button
+                  onClick={handleSaveAnalysis}
+                  disabled={saving}
+                  style={{
+                    padding: "8px 16px",
+                    background: "rgba(255,255,255,0.2)",
+                    color: "white",
+                    border: "1px solid rgba(255,255,255,0.3)",
+                    borderRadius: 8,
+                    fontSize: 13,
+                    fontWeight: 600,
+                    cursor: saving ? "not-allowed" : "pointer",
+                    opacity: saving ? 0.7 : 1,
+                    transition: "all 0.2s",
+                  }}
+                >
+                  {saving ? "Saving..." : saveSaved ? "✓ Saved" : "Save Analysis"}
+                </button>
+              )}
+            </div>
+          </div>
           <div style={{ display: "grid", gap: 12 }}>
             {generateRecommendations(analysis, form).map((rec, i) => (
               <div key={i} style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
@@ -707,7 +992,114 @@ function ResultsDashboard({ analysis, form, extraPayment, setExtraPayment, targe
               </div>
             ))}
           </div>
+          {!session?.user && (
+            <div style={{ marginTop: 16, padding: "12px 16px", background: "rgba(255,255,255,0.1)", borderRadius: 10, fontSize: 13, lineHeight: 1.5 }}>
+              <a href="/auth/signin" style={{ color: "white", fontWeight: 600, textDecoration: "none" }}>
+                Sign in
+              </a>
+              {" "}to save your analysis and access it later
+            </div>
+          )}
         </div>
+
+        {/* Email Modal */}
+        {showEmailModal && (
+          <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50, padding: "20px" }}>
+            <div style={{ background: "white", borderRadius: 16, padding: 32, maxWidth: 420, width: "100%", boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
+              <h2 style={{ fontSize: 20, fontWeight: 700, marginBottom: 8 }}>Email Your Report</h2>
+              <p style={{ fontSize: 14, color: "#666", marginBottom: 20 }}>Get your mortgage analysis sent to your email inbox</p>
+
+              {emailSent ? (
+                <div style={{ textAlign: "center", padding: "20px 0" }}>
+                  <CheckCircle size={48} color="#10B981" style={{ marginBottom: 16 }} />
+                  <h3 style={{ fontSize: 16, fontWeight: 600, marginBottom: 8 }}>Email sent!</h3>
+                  <p style={{ color: "#666", fontSize: 14 }}>Check your inbox for your mortgage analysis report.</p>
+                </div>
+              ) : (
+                <form onSubmit={handleSendReport}>
+                  {emailError && (
+                    <div style={{ padding: "12px 16px", background: "#FEE2E2", border: "1px solid #FECACA", borderRadius: 10, marginBottom: 16, color: "#991B1B", fontSize: 13 }}>
+                      {emailError}
+                    </div>
+                  )}
+                  <div style={{ marginBottom: 16 }}>
+                    <label style={{ display: "block", fontSize: 13, fontWeight: 600, color: "#374151", marginBottom: 8 }}>
+                      Email address
+                    </label>
+                    <div style={{ position: "relative" }}>
+                      <Mail size={18} style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", color: "#9CA3AF", pointerEvents: "none" }} />
+                      <input
+                        type="email"
+                        value={emailAddress}
+                        onChange={(e) => {
+                          setEmailAddress(e.target.value);
+                          setEmailError("");
+                        }}
+                        placeholder="you@example.com"
+                        disabled={sendingEmail}
+                        style={{
+                          width: "100%",
+                          padding: "10px 14px 10px 40px",
+                          borderRadius: 10,
+                          border: "1px solid #D1D5DB",
+                          fontSize: 14,
+                          outline: "none",
+                          boxSizing: "border-box",
+                          opacity: sendingEmail ? 0.6 : 1,
+                        }}
+                      />
+                    </div>
+                  </div>
+
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button
+                      type="button"
+                      onClick={() => setShowEmailModal(false)}
+                      disabled={sendingEmail}
+                      style={{
+                        flex: 1,
+                        padding: "10px 16px",
+                        background: "white",
+                        color: "#111",
+                        border: "1px solid #D1D5DB",
+                        borderRadius: 10,
+                        fontSize: 14,
+                        fontWeight: 600,
+                        cursor: sendingEmail ? "not-allowed" : "pointer",
+                        opacity: sendingEmail ? 0.6 : 1,
+                      }}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={sendingEmail}
+                      style={{
+                        flex: 1,
+                        padding: "10px 16px",
+                        background: "linear-gradient(135deg, #6366F1, #4F46E5)",
+                        color: "white",
+                        border: "none",
+                        borderRadius: 10,
+                        fontSize: 14,
+                        fontWeight: 600,
+                        cursor: sendingEmail ? "not-allowed" : "pointer",
+                        opacity: sendingEmail ? 0.7 : 1,
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        gap: 6,
+                      }}
+                    >
+                      {sendingEmail ? <Loader size={14} style={{ animation: "spin 1s linear infinite" }} /> : <Mail size={14} />}
+                      {sendingEmail ? "Sending..." : "Send Report"}
+                    </button>
+                  </div>
+                </form>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Disclaimer */}
         <div style={{ padding: "16px 20px", background: "#F9FAFB", borderRadius: 12, border: "1px solid #E5E7EB", marginBottom: 40 }}>
