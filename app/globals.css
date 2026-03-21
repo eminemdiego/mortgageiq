@@ -94,6 +94,18 @@ html {
 .money-float-11 { animation: floatSlow  8.5s ease-in-out infinite 0.5s; }
 .money-float-12 { animation: floatWobble 10.5s ease-in-out infinite 3.5s; }
 
+/* ─── Upload progress animations ────────────────────────────────────────────── */
+
+@keyframes dotBounce {
+  0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; }
+  40%           { transform: scale(1);   opacity: 1; }
+}
+
+@keyframes slideProgress {
+  0%   { left: -45%; }
+  100% { left: 100%; }
+}
+
 /* ─── Print styles ──────────────────────────────────────────────────────────── */
 
 @media print {

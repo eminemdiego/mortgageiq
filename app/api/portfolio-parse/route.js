@@ -100,7 +100,8 @@ export async function POST(request) {
       let documentText = null;
       try {
         const { PDFParse } = await import("pdf-parse");
-        const parser = new PDFParse({ data: buffer });
+        // Only parse first 6 pages — key financial data is always in the opening pages
+        const parser = new PDFParse({ data: buffer, max: 6 });
         const pdfData = await parser.getText();
         documentText = pdfData.text?.trim();
       } catch {
@@ -108,8 +109,10 @@ export async function POST(request) {
       }
 
       if (documentText && documentText.length > 100) {
+        // Cap text at 8000 chars — enough for any statement's key fields, avoids bloating the prompt
+        const truncated = documentText.length > 8000 ? documentText.slice(0, 8000) + "\n[...truncated]" : documentText;
         messageContent = [
-          { type: "text", text: `${PROMPTS[docType]}\n\n--- DOCUMENT START ---\n${documentText}\n--- DOCUMENT END ---` },
+          { type: "text", text: `${PROMPTS[docType]}\n\n--- DOCUMENT START ---\n${truncated}\n--- DOCUMENT END ---` },
         ];
       } else {
         messageContent = [

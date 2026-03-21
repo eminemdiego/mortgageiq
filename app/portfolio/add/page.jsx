@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, Upload, CheckCircle, Building2, Key, Briefcase, AlertCircle } from "lucide-react";
@@ -19,10 +19,47 @@ const INITIAL_FORM = {
   deposit_amount: "",
 };
 
-function Spinner() {
+function PulsingDots() {
   return (
-    <div style={{ width: 20, height: 20, borderRadius: "50%", border: "2px solid #E5E7EB", borderTopColor: "#6366F1", animation: "spin 0.8s linear infinite", flexShrink: 0 }} />
+    <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+      {[0, 1, 2].map((i) => (
+        <div
+          key={i}
+          style={{
+            width: 5, height: 5, borderRadius: "50%", background: "#6366F1",
+            animation: `dotBounce 1.2s ease-in-out ${i * 0.2}s infinite`,
+          }}
+        />
+      ))}
+    </div>
   );
+}
+
+const UPLOAD_MESSAGES = {
+  mortgage: [
+    [0,  "Reading document..."],
+    [5,  "Extracting mortgage details..."],
+    [20, "Analysing statement — almost there..."],
+    [40, "Large document, still working..."],
+  ],
+  tenancy: [
+    [0,  "Reading tenancy agreement..."],
+    [5,  "Extracting tenancy details..."],
+    [20, "Almost there..."],
+  ],
+  agent: [
+    [0,  "Reading agent agreement..."],
+    [5,  "Extracting fee details..."],
+  ],
+};
+
+function uploadMsg(type, elapsed) {
+  const steps = UPLOAD_MESSAGES[type] || UPLOAD_MESSAGES.mortgage;
+  let msg = steps[0][1];
+  for (const [t, m] of steps) {
+    if (elapsed >= t) msg = m;
+  }
+  return msg;
 }
 
 const DOC_CONFIGS = [
@@ -69,11 +106,18 @@ const DOC_CONFIGS = [
 function UploadSlot({ config, docState, onFile, agentManual, setAgentManual }) {
   const inputRef = useRef(null);
   const [dragging, setDragging] = useState(false);
+  const [elapsed, setElapsed] = useState(0);
   const { type, label, subtitle, icon: Icon, required, fields } = config;
   const { status, data, error } = docState;
   const isDone = status === "done";
   const isUploading = status === "uploading";
   const isError = status === "error";
+
+  useEffect(() => {
+    if (!isUploading) { setElapsed(0); return; }
+    const interval = setInterval(() => setElapsed((s) => s + 1), 1000);
+    return () => clearInterval(interval);
+  }, [isUploading]);
 
   const handleDrop = (e) => {
     e.preventDefault();
@@ -105,7 +149,6 @@ function UploadSlot({ config, docState, onFile, agentManual, setAgentManual }) {
           <p style={{ fontSize: 12, color: "#6B7280", margin: 0 }}>{subtitle}</p>
         </div>
         <div style={{ flexShrink: 0, display: "flex", alignItems: "center", gap: 8 }}>
-          {isUploading && <Spinner />}
           {(status === "idle" || isError) && (
             <button
               onClick={() => inputRef.current?.click()}
@@ -124,6 +167,30 @@ function UploadSlot({ config, docState, onFile, agentManual, setAgentManual }) {
           )}
         </div>
       </div>
+
+      {/* Upload progress */}
+      {isUploading && (
+        <div style={{ marginTop: 14 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+            <PulsingDots />
+            <span style={{ fontSize: 12, color: "#6366F1", fontWeight: 500 }}>{uploadMsg(type, elapsed)}</span>
+          </div>
+          {elapsed >= 8 && (
+            <p style={{ fontSize: 11, color: "#9CA3AF", marginBottom: 8 }}>
+              This may take up to 30 seconds for larger documents
+            </p>
+          )}
+          {/* Indeterminate progress bar */}
+          <div style={{ height: 3, background: "#E0E7FF", borderRadius: 99, overflow: "hidden", position: "relative" }}>
+            <div style={{
+              position: "absolute", top: 0, height: "100%", width: "45%",
+              background: "linear-gradient(90deg, transparent, #6366F1, transparent)",
+              animation: "slideProgress 1.4s ease-in-out infinite",
+              borderRadius: 99,
+            }} />
+          </div>
+        </div>
+      )}
 
       {/* Extracted fields */}
       {isDone && data && Object.keys(data).length > 0 && (
@@ -226,17 +293,21 @@ export default function AddProperty() {
 
   const setField = (k, v) => setForm((p) => ({ ...p, [k]: v }));
 
-  const handleFile = async (docType, file) => {
+  const handleFile = useCallback(async (docType, file) => {
     setDocs((prev) => ({ ...prev, [docType]: { status: "uploading", data: {}, error: null } }));
     const fd = new FormData();
     fd.append("file", file);
     fd.append("type", docType);
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 60000);
+
     try {
-      const res = await fetch("/api/portfolio-parse", { method: "POST", body: fd });
+      const res = await fetch("/api/portfolio-parse", { method: "POST", body: fd, signal: controller.signal });
+      clearTimeout(timeoutId);
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Extraction failed");
       setDocs((prev) => ({ ...prev, [docType]: { status: "done", data: json } }));
-      // Merge extracted values into form (don't overwrite if already set by another doc)
       setForm((prev) => {
         const merged = { ...prev };
         Object.entries(json).forEach(([k, v]) => {
@@ -247,9 +318,13 @@ export default function AddProperty() {
         return merged;
       });
     } catch (err) {
-      setDocs((prev) => ({ ...prev, [docType]: { status: "error", data: {}, error: err.message } }));
+      clearTimeout(timeoutId);
+      const msg = err.name === "AbortError"
+        ? "Timed out after 60 seconds — please try again."
+        : err.message;
+      setDocs((prev) => ({ ...prev, [docType]: { status: "error", data: {}, error: msg } }));
     }
-  };
+  }, []);
 
   const anyDocDone = Object.values(docs).some((d) => d.status === "done");
 
