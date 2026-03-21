@@ -58,6 +58,15 @@ Field rules:
 
 If a field cannot be found, use null. Never guess or invent values.`;
 
+const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
+const PDF_MAGIC = Buffer.from([0x25, 0x50, 0x44, 0x46]); // %PDF
+
+function sanitizeFilename(name) {
+  return (name || "upload")
+    .replace(/[^a-zA-Z0-9._-]/g, "_")
+    .slice(0, 128);
+}
+
 export async function POST(request) {
   // 1. Check API key
   if (!process.env.ANTHROPIC_API_KEY) {
@@ -79,10 +88,30 @@ export async function POST(request) {
       return NextResponse.json({ error: "No file provided" }, { status: 400 });
     }
 
+    // 3. File size limit
+    if (file.size > MAX_FILE_SIZE) {
+      return NextResponse.json(
+        { error: "File too large. Maximum size is 10 MB." },
+        { status: 413 }
+      );
+    }
+
+    // 4. Sanitize filename (log only — never executed)
+    sanitizeFilename(file.name);
+
     const buffer = Buffer.from(await file.arrayBuffer());
+
+    // 5. Validate PDF magic bytes — reject anything that isn't a real PDF
     const isPdf =
       file.type === "application/pdf" ||
       file.name?.toLowerCase().endsWith(".pdf");
+
+    if (isPdf && !buffer.slice(0, 4).equals(PDF_MAGIC)) {
+      return NextResponse.json(
+        { error: "File does not appear to be a valid PDF." },
+        { status: 415 }
+      );
+    }
 
     let messageContent;
 

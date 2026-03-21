@@ -8,8 +8,8 @@ import {
   Tooltip, ResponsiveContainer,
 } from "recharts";
 import {
-  Upload, Calculator, TrendingDown, Clock, PoundSterling,
-  FileText, AlertTriangle, CheckCircle, Info, ArrowRight,
+  Upload, Calculator, TrendingDown, Clock, PoundSterling, Lock,
+  FileText, AlertTriangle, CheckCircle, Info, ArrowRight, Server,
   Banknote, Target, Zap, Shield, ChevronDown, Mail, Loader,
 } from "lucide-react";
 
@@ -780,10 +780,25 @@ function UploadSection({ uploadedFile, setUploadedFile, dragOver, setDragOver, o
           <p style={{ fontSize: 12, color: "#991B1B", lineHeight: 1.5, margin: 0 }}>{parseError}</p>
         </div>
       )}
-      <div style={{ marginTop: 12, padding: "12px 16px", background: "#FEF3C7", borderRadius: 10, display: "flex", alignItems: "flex-start", gap: 10 }}>
-        <Shield size={16} color="#D97706" style={{ flexShrink: 0, marginTop: 2 }} />
-        <p style={{ fontSize: 12, color: "#92400E", lineHeight: 1.5, margin: 0 }}>Your document is processed securely and never stored on our servers. All analysis happens in real-time and data is deleted immediately after.</p>
+      {/* Accurate security badges */}
+      <div style={{ marginTop: 16, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+        {[
+          { icon: <Lock size={14} />, text: "Encrypted in transit (HTTPS/TLS)" },
+          { icon: <Shield size={14} />, text: "Not stored — deleted after processing" },
+          { icon: <Server size={14} />, text: "AI processing via Anthropic Claude" },
+          { icon: <FileText size={14} />, text: "Max 10 MB · PDF only" },
+        ].map((b, i) => (
+          <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", background: "#F9FAFB", borderRadius: 8, border: "1px solid #E5E7EB" }}>
+            <span style={{ color: "#6366F1", flexShrink: 0 }}>{b.icon}</span>
+            <span style={{ fontSize: 12, color: "#374151" }}>{b.text}</span>
+          </div>
+        ))}
       </div>
+      <p style={{ marginTop: 10, fontSize: 11, color: "#9CA3AF", textAlign: "center" }}>
+        By uploading you agree to our{" "}
+        <a href="/privacy" style={{ color: "#6366F1" }}>Privacy Policy</a>.
+        Your PDF is sent securely to our server and forwarded to Anthropic for AI extraction, then discarded.
+      </p>
     </div>
   );
 }
