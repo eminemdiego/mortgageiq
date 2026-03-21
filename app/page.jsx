@@ -308,20 +308,21 @@ export default function MortgageAnalyzer() {
             <p style={{ color: "#666", textAlign: "center", marginBottom: 32 }}>
               Choose how you'd like to provide your mortgage details
             </p>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16 }}>
+            <div style={{ display: "flex", gap: 16, justifyContent: "center", maxWidth: 560, margin: "0 auto" }}>
               {[
                 { id: "upload", icon: <Upload size={28} />, title: "Upload Statement", desc: "Upload your latest mortgage statement PDF and we'll extract the details" },
                 { id: "manual", icon: <Calculator size={28} />, title: "Enter Manually", desc: "Input your mortgage details by hand — quick and straightforward" },
-                { id: "both", icon: <FileText size={28} />, title: "Both", desc: "Upload a statement AND fill in any extra details for the most accurate analysis" },
               ].map((opt) => (
-                <MethodCard key={opt.id} {...opt} onClick={() => setInputMethod(opt.id)} />
+                <div key={opt.id} style={{ flex: 1 }}>
+                  <MethodCard {...opt} onClick={() => setInputMethod(opt.id)} />
+                </div>
               ))}
             </div>
           </div>
         )}
 
         {/* Upload */}
-        {inputMethod && (inputMethod === "upload" || inputMethod === "both") && (
+        {inputMethod === "upload" && (
           <UploadSection
             uploadedFile={uploadedFile}
             setUploadedFile={(f) => { setUploadedFile(f); if (!f) setParsedData(null); }}
@@ -347,7 +348,7 @@ export default function MortgageAnalyzer() {
         )}
 
         {/* Manual form */}
-        {inputMethod && (inputMethod === "manual" || inputMethod === "both") && (
+        {inputMethod === "manual" && (
           <div>
             <h3 style={{ fontSize: 18, fontWeight: 600, marginBottom: 20 }}>
               Mortgage Details
