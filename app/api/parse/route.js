@@ -1,9 +1,7 @@
+import { NextResponse } from "next/server";
 import { Anthropic } from "@anthropic-ai/sdk";
-import { PDFParse } from "pdf-parse";
 
 export const dynamic = "force-dynamic";
-
-const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
 const EXTRACTION_PROMPT = `You are an expert UK mortgage document parser. Extract mortgage details from this document.
 
@@ -61,40 +59,47 @@ Field rules:
 If a field cannot be found, use null. Never guess or invent values.`;
 
 export async function POST(request) {
-  // Check API key upfront for a clear error
+  // 1. Check API key
   if (!process.env.ANTHROPIC_API_KEY) {
     console.error("ANTHROPIC_API_KEY is not set");
-    return Response.json(
-      { error: "Server configuration error: API key not set. Please contact support." },
+    return NextResponse.json(
+      { error: "Server configuration error: API key not configured." },
       { status: 500 }
     );
   }
 
+  const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+
   try {
+    // 2. Parse form data
     const formData = await request.formData();
     const file = formData.get("file");
 
     if (!file) {
-      return Response.json({ error: "No file provided" }, { status: 400 });
+      return NextResponse.json({ error: "No file provided" }, { status: 400 });
     }
 
     const buffer = Buffer.from(await file.arrayBuffer());
-    const isPdf = file.type === "application/pdf" || file.name?.toLowerCase().endsWith(".pdf");
+    const isPdf =
+      file.type === "application/pdf" ||
+      file.name?.toLowerCase().endsWith(".pdf");
 
     let messageContent;
 
     if (isPdf) {
-      // Try pdf-parse for text extraction; fall back to Claude vision if it fails
+      // 3. Try to extract text via pdf-parse (dynamic import so a failure doesn't crash the module)
       let documentText = null;
       try {
+        const { PDFParse } = await import("pdf-parse");
         const parser = new PDFParse({ data: buffer });
         const pdfData = await parser.getText();
         documentText = pdfData.text?.trim();
       } catch (err) {
-        console.error("pdf-parse failed, using Claude vision:", err.message);
+        console.error("pdf-parse failed, will use Claude vision:", err.message);
       }
 
       if (documentText && documentText.length > 100) {
+        // Good text — send as plain text to Claude
         messageContent = [
           {
             type: "text",
@@ -102,7 +107,7 @@ export async function POST(request) {
           },
         ];
       } else {
-        // Scanned/image PDF — send as base64 document
+        // Scanned/image PDF — send as base64 document for Claude vision
         messageContent = [
           {
             type: "document",
@@ -131,6 +136,7 @@ export async function POST(request) {
       ];
     }
 
+    // 4. Call Claude
     let response;
     try {
       response = await client.messages.create({
@@ -140,31 +146,34 @@ export async function POST(request) {
       });
     } catch (err) {
       console.error("Claude API error:", err);
-      const msg = err?.status === 401
-        ? "Invalid API key. Please check server configuration."
-        : err?.status === 529 || err?.status === 429
-        ? "AI service is busy. Please try again in a moment."
-        : "AI service error. Please try again or enter details manually.";
-      return Response.json({ error: msg }, { status: 502 });
+      const msg =
+        err?.status === 401
+          ? "Invalid API key. Please check server configuration."
+          : err?.status === 429 || err?.status === 529
+          ? "AI service is busy. Please try again in a moment."
+          : `AI service error (${err?.status ?? "unknown"}). Please try again.`;
+      return NextResponse.json({ error: msg }, { status: 502 });
     }
 
+    // 5. Parse Claude's JSON response
     const responseText = response.content[0].text;
-
     let extractedData;
     try {
       const jsonMatch = responseText.match(/\{[\s\S]*\}/);
       extractedData = JSON.parse(jsonMatch ? jsonMatch[0] : responseText);
     } catch {
       console.error("Failed to parse Claude response:", responseText);
-      return Response.json(
-        { error: "Failed to read document structure. Please enter details manually." },
+      return NextResponse.json(
+        { error: "Could not read document structure. Please enter details manually." },
         { status: 400 }
       );
     }
 
-    const str = (val) => (val !== null && val !== undefined ? String(val) : "");
+    // 6. Map to form fields
+    const str = (val) =>
+      val !== null && val !== undefined ? String(val) : "";
 
-    const result = {
+    return NextResponse.json({
       outstandingBalance:   str(extractedData.outstandingBalance),
       monthlyPayment:       str(extractedData.monthlyPayment),
       interestRate:         str(extractedData.interestRate),
@@ -180,13 +189,11 @@ export async function POST(request) {
       originalTerm:         str(extractedData.originalTerm),
       propertyAddress:      extractedData.propertyAddress || "",
       isIslamicFinance:     extractedData.isIslamicFinance || false,
-    };
-
-    return Response.json(result, { status: 200 });
+    });
   } catch (error) {
     console.error("Parse API unexpected error:", error);
-    return Response.json(
-      { error: "Unexpected error processing file. Please try again or enter details manually." },
+    return NextResponse.json(
+      { error: "Unexpected error. Please try again or enter details manually." },
       { status: 500 }
     );
   }
