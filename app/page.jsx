@@ -306,7 +306,7 @@ export default function MortgageAnalyzer() {
         maxInterestSaved: current.totalInterest - tenYearsMaxAllowedAmort.totalInterest,
       },
     };
-  }, [form, extraPayment, targetYears]);
+  }, [form, extraPayment, targetYears, adjBalance, adjYears, adjustment]);
 
   const handleAnalyze = () => {
     setStep("analyzing");
@@ -1087,9 +1087,9 @@ function ResultsDashboard({ analysis, form, parsedData, adjustment, adjBalance, 
   const isIslamicFinance = parsedData?.isIslamicFinance || false;
   const interestLabel = isIslamicFinance ? "rental payments" : "interest";
 
-  // Progress through mortgage
+  // Progress through mortgage — use rolled-forward balance for accuracy
   const origLoan = parseFloat(form.originalLoanAmount) || null;
-  const pctPaid = origLoan ? Math.min(100, Math.round((1 - balance / origLoan) * 100)) : null;
+  const pctPaid = origLoan ? Math.max(0, Math.min(100, Math.round((1 - balance / origLoan) * 1000) / 10)) : null;
 
   // Lump sum calculations
   const lumpSumNum = parseFloat(lumpSum) || 0;
