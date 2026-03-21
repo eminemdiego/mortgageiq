@@ -106,6 +106,7 @@ export default function MortgageAnalyzer() {
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [parsing, setParsing] = useState(false);
   const [parseError, setParseError] = useState(null);
+  const [parsedData, setParsedData] = useState(null);
 
   const [form, setForm] = useState({
     outstandingBalance: "",
@@ -153,19 +154,24 @@ export default function MortgageAnalyzer() {
       }
 
       const extractedData = await response.json();
-      
-      // Auto-fill form with extracted data
+
+      // Auto-fill form with extracted data (all fields)
       setForm((prev) => ({
         ...prev,
-        outstandingBalance: extractedData.outstandingBalance || prev.outstandingBalance,
-        monthlyPayment: extractedData.monthlyPayment || prev.monthlyPayment,
-        interestRate: extractedData.interestRate || prev.interestRate,
-        remainingYears: extractedData.remainingYears || prev.remainingYears,
-        bank: extractedData.bank || prev.bank,
-        mortgageType: extractedData.mortgageType || prev.mortgageType,
-        rateType: extractedData.rateType || prev.rateType,
+        outstandingBalance:   extractedData.outstandingBalance   || prev.outstandingBalance,
+        monthlyPayment:       extractedData.monthlyPayment       || prev.monthlyPayment,
+        interestRate:         extractedData.interestRate         || prev.interestRate,
+        remainingYears:       extractedData.remainingYears       || prev.remainingYears,
+        bank:                 extractedData.bank                 || prev.bank,
+        mortgageType:         extractedData.mortgageType         || prev.mortgageType,
+        rateType:             extractedData.rateType             || prev.rateType,
+        fixedUntil:           extractedData.fixedUntil           || prev.fixedUntil,
+        earlyRepaymentCharge: extractedData.earlyRepaymentCharge || prev.earlyRepaymentCharge,
+        originalLoanAmount:   extractedData.originalLoanAmount   || prev.originalLoanAmount,
+        originalTerm:         extractedData.originalTerm         || prev.originalTerm,
       }));
 
+      setParsedData(extractedData);
       setParseError(null);
     } catch (error) {
       console.error("Error parsing file:", error);
@@ -289,12 +295,13 @@ export default function MortgageAnalyzer() {
         {inputMethod && (inputMethod === "upload" || inputMethod === "both") && (
           <UploadSection
             uploadedFile={uploadedFile}
-            setUploadedFile={setUploadedFile}
+            setUploadedFile={(f) => { setUploadedFile(f); if (!f) setParsedData(null); }}
             dragOver={dragOver}
             setDragOver={setDragOver}
             onFileUpload={handleFileUpload}
             parsing={parsing}
             parseError={parseError}
+            parsedData={parsedData}
           />
         )}
 
@@ -666,7 +673,17 @@ function MethodCard({ icon, title, desc, onClick }) {
   );
 }
 
-function UploadSection({ uploadedFile, setUploadedFile, dragOver, setDragOver, onFileUpload, parsing, parseError }) {
+function UploadSection({ uploadedFile, setUploadedFile, dragOver, setDragOver, onFileUpload, parsing, parseError, parsedData }) {
+  const fieldsExtracted = parsedData ? [
+    parsedData.outstandingBalance && "Outstanding balance",
+    parsedData.monthlyPayment     && "Monthly payment",
+    parsedData.interestRate       && "Interest rate",
+    parsedData.remainingYears     && "Remaining term",
+    parsedData.bank               && `Lender (${parsedData.bank})`,
+    parsedData.fixedUntil         && `Fixed until ${parsedData.fixedUntil}`,
+    parsedData.earlyRepaymentCharge && `ERC ${parsedData.earlyRepaymentCharge}%`,
+  ].filter(Boolean) : [];
+
   return (
     <div style={{ marginBottom: 32 }}>
       <h3 style={{ fontSize: 18, fontWeight: 600, marginBottom: 16 }}>Upload Mortgage Statement</h3>
@@ -674,11 +691,12 @@ function UploadSection({ uploadedFile, setUploadedFile, dragOver, setDragOver, o
         onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
         onDragLeave={() => setDragOver(false)}
         onDrop={(e) => { e.preventDefault(); setDragOver(false); onFileUpload(e.dataTransfer.files[0]); }}
-        onClick={() => !parsing && document.getElementById("fileInput")?.click()}
+        onClick={() => !parsing && !uploadedFile && document.getElementById("fileInput")?.click()}
         style={{
-          border: `2px dashed ${dragOver ? "#6366F1" : "#D1D5DB"}`,
-          borderRadius: 16, padding: "48px 32px", textAlign: "center",
-          background: dragOver ? "#EEF2FF" : "white", transition: "all 0.2s", cursor: parsing ? "default" : "pointer",
+          border: `2px dashed ${uploadedFile ? "#10B981" : dragOver ? "#6366F1" : "#D1D5DB"}`,
+          borderRadius: 16, padding: "32px", textAlign: "center",
+          background: uploadedFile ? "#F0FDF4" : dragOver ? "#EEF2FF" : "white",
+          transition: "all 0.2s", cursor: parsing || uploadedFile ? "default" : "pointer",
           opacity: parsing ? 0.6 : 1,
         }}
       >
@@ -691,10 +709,21 @@ function UploadSection({ uploadedFile, setUploadedFile, dragOver, setDragOver, o
           </div>
         ) : uploadedFile ? (
           <div>
-            <CheckCircle size={40} color="#10B981" style={{ marginBottom: 12 }} />
-            <p style={{ fontWeight: 600, marginBottom: 4 }}>{uploadedFile.name}</p>
-            <p style={{ fontSize: 13, color: "#666" }}>File analysed and details extracted</p>
-            <button onClick={(e) => { e.stopPropagation(); setUploadedFile(null); }} style={{ marginTop: 12, background: "none", border: "1px solid #D1D5DB", borderRadius: 8, padding: "6px 16px", cursor: "pointer", fontSize: 13, color: "#666" }}>Remove</button>
+            <CheckCircle size={36} color="#10B981" style={{ marginBottom: 10 }} />
+            <p style={{ fontWeight: 600, marginBottom: 2, fontSize: 15 }}>{uploadedFile.name}</p>
+            {parsedData?.isIslamicFinance && (
+              <div style={{ display: "inline-flex", alignItems: "center", gap: 5, background: "#FEF3C7", border: "1px solid #FDE68A", borderRadius: 20, padding: "3px 12px", fontSize: 12, color: "#92400E", fontWeight: 500, margin: "8px 0" }}>
+                <Info size={12} /> Islamic Finance / Home Purchase Plan detected
+              </div>
+            )}
+            {fieldsExtracted.length > 0 && (
+              <div style={{ marginTop: 10, display: "flex", flexWrap: "wrap", gap: 6, justifyContent: "center" }}>
+                {fieldsExtracted.map((f, i) => (
+                  <span key={i} style={{ background: "#DCFCE7", color: "#166534", fontSize: 12, borderRadius: 20, padding: "2px 10px", fontWeight: 500 }}>✓ {f}</span>
+                ))}
+              </div>
+            )}
+            <button onClick={(e) => { e.stopPropagation(); setUploadedFile(null); }} style={{ marginTop: 14, background: "none", border: "1px solid #D1D5DB", borderRadius: 8, padding: "6px 16px", cursor: "pointer", fontSize: 13, color: "#666" }}>Remove</button>
           </div>
         ) : (
           <div>

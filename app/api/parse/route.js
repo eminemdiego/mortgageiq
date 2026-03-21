@@ -1,8 +1,64 @@
 import { Anthropic } from "@anthropic-ai/sdk";
+import { PDFParse } from "pdf-parse";
 
-const client = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY,
-});
+export const dynamic = "force-dynamic";
+
+const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+
+const EXTRACTION_PROMPT = `You are an expert UK mortgage document parser. Extract mortgage details from this document.
+
+This may be a traditional UK mortgage OR an Islamic finance Home Purchase Plan (HPP) — such as those from Gatehouse Bank, Al Rayan Bank, Ahli United Bank, etc.
+
+Islamic finance terminology translation:
+- "Rental Rate" / "Rent Rate" → interest rate
+- "Acquisition payment" / "Acquisition" → capital/repayment portion
+- "Rental payment" → interest portion
+- "Home Purchase Plan" / "HPP" / "Purchase Plan" / "Diminishing Musharakah" → mortgage type = "Repayment"
+- "Balance as at [closing date]" → outstanding balance
+- The total of acquisition + rental payments → monthly payment
+- Bank name in the letterhead/header → lender name
+- "Product Type" field → rate type
+- "End Date" of current product → fixed rate end date
+- "Reverting to" → what the rate reverts to after fix ends
+- "Early Redemption Charge" / "ERC" → early repayment charge
+
+Return ONLY a valid JSON object (no markdown, no explanation, just raw JSON):
+{
+  "outstandingBalance": number,
+  "monthlyPayment": number,
+  "interestRate": number,
+  "remainingYears": number,
+  "lenderName": string,
+  "mortgageType": string,
+  "rateType": string,
+  "fixedUntil": string or null,
+  "revertingTo": string or null,
+  "earlyRepaymentCharge": number or null,
+  "ercEndDate": string or null,
+  "originalLoanAmount": number or null,
+  "originalTerm": number or null,
+  "propertyAddress": string or null,
+  "isIslamicFinance": boolean
+}
+
+Field rules:
+- outstandingBalance: the closing/outstanding balance in £ (strip £ and commas, return number)
+- monthlyPayment: the regular monthly payment (for Islamic HPP: acquisition + rental total)
+- interestRate: annual rate as plain number (4.75% → 4.75)
+- remainingYears: remaining term in years (if shown in months, divide by 12 and round to 1dp)
+- lenderName: full bank/lender name as shown on the statement
+- mortgageType: one of exactly "Repayment", "Interest Only", "Part & Part"
+- rateType: one of exactly "Fixed", "Variable / Tracker", "SVR (Standard Variable Rate)", "Discounted Variable"
+- fixedUntil: human-readable end date of current rate, e.g. "March 2027"
+- revertingTo: what rate reverts to, e.g. "Standard Variable Rate" or "SVR"
+- earlyRepaymentCharge: ERC as a percentage number (3% → 3), or null
+- ercEndDate: date ERC period ends, e.g. "December 2026", or null
+- originalLoanAmount: original loan/purchase plan amount in £ (number), or null
+- originalTerm: original mortgage term in years (number), or null
+- propertyAddress: full property address if shown on the statement, or null
+- isIslamicFinance: true if this is an Islamic finance/HPP product, false otherwise
+
+If a field cannot be found, use null. Never guess or invent values.`;
 
 export async function POST(request) {
   try {
@@ -10,160 +66,108 @@ export async function POST(request) {
     const file = formData.get("file");
 
     if (!file) {
-      return new Response(
-        JSON.stringify({ error: "No file provided" }),
-        { status: 400 }
-      );
+      return Response.json({ error: "No file provided" }, { status: 400 });
     }
 
-    // Read file buffer
-    const buffer = await file.arrayBuffer();
-    const base64 = Buffer.from(buffer).toString("base64");
+    const buffer = Buffer.from(await file.arrayBuffer());
+    const isPdf = file.type === "application/pdf" || file.name?.toLowerCase().endsWith(".pdf");
 
-    // Determine media type
-    let mediaType = "application/pdf";
-    if (file.type.includes("image")) {
-      mediaType = file.type;
-    }
-
-    // Prepare message for Claude
     let messageContent;
 
-    if (mediaType === "application/pdf") {
-      messageContent = [
-        {
-          type: "document",
-          source: {
-            type: "base64",
-            media_type: "application/pdf",
-            data: base64,
-          },
-        },
-        {
-          type: "text",
-          text: `Extract the following mortgage details from this statement and return ONLY a valid JSON object with these exact fields (use null for any missing values):
-{
-  "outstandingBalance": number,
-  "monthlyPayment": number,
-  "interestRate": number,
-  "remainingYears": number,
-  "lenderName": string,
-  "mortgageType": string (one of "Repayment", "Interest Only", "Part & Part"),
-  "rateType": string (one of "Fixed", "Variable / Tracker", "SVR (Standard Variable Rate)", "Discounted Variable")
-}
+    if (isPdf) {
+      // Extract text via pdf-parse first for reliable text-based parsing
+      let documentText = null;
+      try {
+        const parser = new PDFParse({ data: buffer });
+        const pdfData = await parser.getText();
+        documentText = pdfData.text?.trim();
+      } catch (err) {
+        console.error("pdf-parse extraction failed, falling back to Claude vision:", err.message);
+      }
 
-Rules:
-- Extract ONLY these fields
-- Remove currency symbols and commas from numbers
-- Convert percentages to decimal (e.g., 4.75% = 4.75)
-- Return ONLY the JSON object, no other text
-- If you cannot find a field, set it to null`,
-        },
-      ];
+      if (documentText && documentText.length > 100) {
+        // Good text extraction — send as text to Claude
+        messageContent = [
+          {
+            type: "text",
+            text: `${EXTRACTION_PROMPT}\n\n--- DOCUMENT TEXT START ---\n${documentText}\n--- DOCUMENT TEXT END ---`,
+          },
+        ];
+      } else {
+        // Scanned/image PDF — send as base64 document for Claude vision
+        messageContent = [
+          {
+            type: "document",
+            source: {
+              type: "base64",
+              media_type: "application/pdf",
+              data: buffer.toString("base64"),
+            },
+          },
+          { type: "text", text: EXTRACTION_PROMPT },
+        ];
+      }
     } else {
-      // Image file
+      // Image file (JPG, PNG)
+      const mediaType = file.type.startsWith("image/") ? file.type : "image/jpeg";
       messageContent = [
         {
           type: "image",
           source: {
             type: "base64",
             media_type: mediaType,
-            data: base64,
+            data: buffer.toString("base64"),
           },
         },
-        {
-          type: "text",
-          text: `Extract the following mortgage details from this image and return ONLY a valid JSON object with these exact fields (use null for any missing values):
-{
-  "outstandingBalance": number,
-  "monthlyPayment": number,
-  "interestRate": number,
-  "remainingYears": number,
-  "lenderName": string,
-  "mortgageType": string (one of "Repayment", "Interest Only", "Part & Part"),
-  "rateType": string (one of "Fixed", "Variable / Tracker", "SVR (Standard Variable Rate)", "Discounted Variable")
-}
-
-Rules:
-- Extract ONLY these fields
-- Remove currency symbols and commas from numbers
-- Convert percentages to decimal (e.g., 4.75% = 4.75)
-- Return ONLY the JSON object, no other text
-- If you cannot find a field, set it to null`,
-        },
+        { type: "text", text: EXTRACTION_PROMPT },
       ];
     }
 
-    // Call Claude API
     const response = await client.messages.create({
-      model: "claude-3-5-sonnet-20241022",
+      model: "claude-opus-4-6",
       max_tokens: 1024,
-      messages: [
-        {
-          role: "user",
-          content: messageContent,
-        },
-      ],
+      messages: [{ role: "user", content: messageContent }],
     });
 
-    // Extract JSON from response
     const responseText = response.content[0].text;
 
-    // Parse the JSON
     let extractedData;
     try {
-      // Try to extract JSON from the response (in case there's extra text)
       const jsonMatch = responseText.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        extractedData = JSON.parse(jsonMatch[0]);
-      } else {
-        extractedData = JSON.parse(responseText);
-      }
-    } catch (parseError) {
+      extractedData = JSON.parse(jsonMatch ? jsonMatch[0] : responseText);
+    } catch {
       console.error("Failed to parse Claude response:", responseText);
-      return new Response(
-        JSON.stringify({
-          error: "Failed to parse document. Please try another file or enter details manually.",
-          raw: responseText,
-        }),
+      return Response.json(
+        { error: "Failed to parse document. Please enter details manually." },
         { status: 400 }
       );
     }
 
-    // Validate extracted data
+    const str = (val) => (val !== null && val !== undefined ? String(val) : "");
+
     const result = {
-      outstandingBalance:
-        extractedData.outstandingBalance !== null &&
-        extractedData.outstandingBalance !== undefined
-          ? String(extractedData.outstandingBalance)
-          : "",
-      monthlyPayment:
-        extractedData.monthlyPayment !== null &&
-        extractedData.monthlyPayment !== undefined
-          ? String(extractedData.monthlyPayment)
-          : "",
-      interestRate:
-        extractedData.interestRate !== null &&
-        extractedData.interestRate !== undefined
-          ? String(extractedData.interestRate)
-          : "",
-      remainingYears:
-        extractedData.remainingYears !== null &&
-        extractedData.remainingYears !== undefined
-          ? String(extractedData.remainingYears)
-          : "",
-      bank: extractedData.lenderName || "",
-      mortgageType: extractedData.mortgageType || "Repayment",
-      rateType: extractedData.rateType || "Fixed",
+      outstandingBalance:   str(extractedData.outstandingBalance),
+      monthlyPayment:       str(extractedData.monthlyPayment),
+      interestRate:         str(extractedData.interestRate),
+      remainingYears:       str(extractedData.remainingYears),
+      bank:                 extractedData.lenderName || "",
+      mortgageType:         extractedData.mortgageType || "Repayment",
+      rateType:             extractedData.rateType || "Fixed",
+      fixedUntil:           extractedData.fixedUntil || "",
+      revertingTo:          extractedData.revertingTo || "",
+      earlyRepaymentCharge: str(extractedData.earlyRepaymentCharge),
+      ercEndDate:           extractedData.ercEndDate || "",
+      originalLoanAmount:   str(extractedData.originalLoanAmount),
+      originalTerm:         str(extractedData.originalTerm),
+      propertyAddress:      extractedData.propertyAddress || "",
+      isIslamicFinance:     extractedData.isIslamicFinance || false,
     };
 
-    return new Response(JSON.stringify(result), { status: 200 });
+    return Response.json(result, { status: 200 });
   } catch (error) {
     console.error("Parse API error:", error);
-    return new Response(
-      JSON.stringify({
-        error: "Failed to process file. Please try again or enter details manually.",
-      }),
+    return Response.json(
+      { error: "Failed to process file. Please try again or enter details manually." },
       { status: 500 }
     );
   }
