@@ -139,6 +139,7 @@ export default function PortfolioDashboard() {
         case "profit": va = calcCashFlow(a).net; vb = calcCashFlow(b).net; break;
         case "yield": va = grossYield(a) || 0; vb = grossYield(b) || 0; break;
         case "value": va = a.estimated_value || 0; vb = b.estimated_value || 0; break;
+        case "balance": va = a.outstanding_balance || 0; vb = b.outstanding_balance || 0; break;
         case "ltv": va = a.estimated_value ? ((a.outstanding_balance || 0) / a.estimated_value) * 100 : 0; vb = b.estimated_value ? ((b.outstanding_balance || 0) / b.estimated_value) * 100 : 0; break;
         case "rate": va = a.interest_rate || 0; vb = b.interest_rate || 0; break;
         case "rateEnds": va = a.fixed_until ? new Date(a.fixed_until).getTime() : Infinity; vb = b.fixed_until ? new Date(b.fixed_until).getTime() : Infinity; break;
@@ -296,7 +297,7 @@ export default function PortfolioDashboard() {
 
             {/* Desktop table */}
             <div className="portfolio-table-desktop" style={{ background: "white", border: "1px solid #E5E7EB", borderRadius: 14, overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
-              <table style={{ width: "100%", minWidth: 1100, borderCollapse: "collapse", fontSize: 12 }}>
+              <table style={{ width: "100%", minWidth: 1150, borderCollapse: "collapse", fontSize: 12 }}>
                 <thead>
                   <tr style={{ background: "#F9FAFB", borderBottom: "1px solid #E5E7EB" }}>
                     {[
@@ -309,6 +310,7 @@ export default function PortfolioDashboard() {
                       { key: "profit", label: "Profit" },
                       { key: "yield", label: "Yield" },
                       { key: "value", label: "Value" },
+                      { key: "balance", label: "Balance" },
                       { key: "ltv", label: "LTV" },
                       { key: "rate", label: "Rate" },
                       { key: "rateEnds", label: "Ends" },
@@ -321,7 +323,7 @@ export default function PortfolioDashboard() {
                         onClick={col.key ? () => handleSort(col.key) : undefined}
                         style={{
                           padding: "10px 8px",
-                          textAlign: col.key === "rent" || col.key === "mortgage" || col.key === "agentFee" || col.key === "profit" || col.key === "value" ? "right" : "left",
+                          textAlign: col.key === "rent" || col.key === "mortgage" || col.key === "agentFee" || col.key === "profit" || col.key === "value" || col.key === "balance" ? "right" : "left",
                           fontWeight: 600,
                           fontSize: 10,
                           color: "#6B7280",
@@ -362,7 +364,7 @@ export default function PortfolioDashboard() {
                         onMouseEnter={(e) => e.currentTarget.style.background = "#F5F3FF"}
                         onMouseLeave={(e) => e.currentTarget.style.background = i % 2 === 1 ? "#FAFBFC" : "white"}
                       >
-                        <td style={{ padding: P, maxWidth: 180 }}>
+                        <td style={{ padding: P, maxWidth: 160 }}>
                           <a href={`/portfolio/${p.id}`} style={{ color: "#111", fontWeight: 600, textDecoration: "none", fontSize: 12, lineHeight: 1.35, display: "block" }}
                             onMouseEnter={(e) => e.target.style.color = "#6366F1"} onMouseLeave={(e) => e.target.style.color = "#111"}>
                             {p.address?.split(",")[0] || p.address || "—"}
@@ -387,6 +389,7 @@ export default function PortfolioDashboard() {
                         <td style={{ padding: P, fontWeight: 700, color: net >= 0 ? "#10B981" : "#EF4444", textAlign: "right" }}>{fmt(Math.round(net))}</td>
                         <td style={{ padding: P, fontWeight: 600 }}>{gy ? gy.toFixed(1) + "%" : "—"}</td>
                         <td style={{ padding: P, textAlign: "right", color: "#374151" }}>{p.estimated_value ? "£" + (p.estimated_value / 1000).toFixed(0) + "k" : "—"}</td>
+                        <td style={{ padding: P, textAlign: "right", color: "#374151" }}>{p.outstanding_balance ? "£" + (p.outstanding_balance / 1000).toFixed(0) + "k" : "—"}</td>
 
                         <td style={{ padding: P }}>
                           {(() => {
