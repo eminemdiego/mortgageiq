@@ -425,8 +425,6 @@ export default function MortgageAnalyzer() {
 
   return (
     <div style={S.page}>
-      <Header onBack={() => setStep("landing")} />
-
       <div style={{ maxWidth: 760, margin: "0 auto", padding: "40px 20px" }}>
         {/* Method selector */}
         {!inputMethod && (
@@ -571,108 +569,6 @@ export default function MortgageAnalyzer() {
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════════
-   SUB-COMPONENTS
-   ═══════════════════════════════════════════════════════════════════════════════ */
-
-function Header({ onBack }) {
-  const { data: session } = useSession();
-  const router = useRouter();
-  const [showMenu, setShowMenu] = useState(false);
-
-  return (
-    <div style={{ borderBottom: "1px solid #E5E7EB", background: "white", padding: "14px 24px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }} onClick={onBack}>
-        <div style={{ width: 34, height: 34, borderRadius: 10, background: "linear-gradient(135deg, #6366F1, #4F46E5)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <Banknote size={18} color="white" />
-        </div>
-        <span style={{ fontWeight: 700, fontSize: 18 }}>Mortgage AI Calc</span>
-      </div>
-      <div style={{ display: "flex", gap: 24, fontSize: 14, color: "#666", alignItems: "center" }}>
-        <span style={{ cursor: "pointer" }}>How it works</span>
-        <span style={{ cursor: "pointer" }}>Pricing</span>
-        <span
-          onClick={() => router.push("/compare")}
-          style={{ cursor: "pointer", color: "#6366F1", fontWeight: 500 }}
-        >
-          Compare Deals
-        </span>
-        {session?.user ? (
-          <div style={{ position: "relative" }}>
-            <button
-              onClick={() => setShowMenu(!showMenu)}
-              style={{
-                background: "white",
-                border: "1px solid #D1D5DB",
-                borderRadius: 8,
-                padding: "8px 18px",
-                fontSize: 13,
-                fontWeight: 500,
-                cursor: "pointer",
-                display: "flex",
-                alignItems: "center",
-                gap: 8,
-              }}
-            >
-              <div
-                style={{
-                  width: 24,
-                  height: 24,
-                  borderRadius: "50%",
-                  background: "linear-gradient(135deg, #6366F1, #4F46E5)",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  color: "white",
-                  fontSize: 12,
-                  fontWeight: 600,
-                }}
-              >
-                {session.user.name?.charAt(0) || session.user.email?.charAt(0)}
-              </div>
-              {session.user.name || "Account"}
-            </button>
-            {showMenu && (
-              <div style={{ position: "absolute", top: "100%", right: 0, marginTop: 8, background: "white", border: "1px solid #E5E7EB", borderRadius: 10, boxShadow: "0 4px 20px rgba(0,0,0,0.1)", minWidth: 200, zIndex: 10 }}>
-                <button
-                  onClick={() => {
-                    router.push("/analyses");
-                    setShowMenu(false);
-                  }}
-                  style={{ width: "100%", textAlign: "left", padding: "12px 16px", background: "none", border: "none", cursor: "pointer", fontSize: 14, color: "#111", borderBottom: "1px solid #F3F4F6" }}
-                >
-                  My Analyses
-                </button>
-                <button
-                  onClick={() => {
-                    signOut();
-                    setShowMenu(false);
-                  }}
-                  style={{ width: "100%", textAlign: "left", padding: "12px 16px", background: "none", border: "none", cursor: "pointer", fontSize: 14, color: "#EF4444" }}
-                >
-                  Sign out
-                </button>
-              </div>
-            )}
-          </div>
-        ) : (
-          <>
-            <button onClick={() => router.push("/auth/signin")} style={{ background: "none", border: "none", cursor: "pointer", color: "#666", fontSize: 13, fontWeight: 500 }}>
-              Sign in
-            </button>
-            <button
-              onClick={() => router.push("/auth/signup")}
-              style={{ background: "#111", color: "white", border: "none", borderRadius: 8, padding: "8px 18px", fontSize: 13, fontWeight: 500, cursor: "pointer" }}
-            >
-              Sign up
-            </button>
-          </>
-        )}
-      </div>
-    </div>
-  );
-}
-
-/* ═══════════════════════════════════════════════════════════════════════════════
    MONEY BACKGROUND
    ═══════════════════════════════════════════════════════════════════════════════ */
 
@@ -750,8 +646,6 @@ function MoneyBackground() {
 function LandingPage({ onStart }) {
   return (
     <div style={S.page}>
-      <Header onBack={() => {}} />
-
       {/* Hero */}
       <div style={{ position: "relative", overflow: "hidden", background: "linear-gradient(160deg, #f8f7ff 0%, #fafbff 50%, #f0f4ff 100%)" }}>
         <MoneyBackground />
@@ -1493,8 +1387,6 @@ function ResultsDashboard({ analysis, form, parsedData, adjustment, adjBalance, 
 
   return (
     <div style={{ minHeight: "100vh", background: "#F3F4F6", fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" }}>
-      <Header onBack={onBack} />
-
       <div style={{ maxWidth: 1100, margin: "0 auto", padding: "32px 20px" }}>
         <button onClick={onBack} style={{ background: "none", border: "none", cursor: "pointer", color: "#6366F1", fontSize: 14, fontWeight: 500, marginBottom: 24, padding: 0 }}>
           ← Edit mortgage details

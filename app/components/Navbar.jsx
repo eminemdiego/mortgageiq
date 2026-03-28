@@ -9,6 +9,7 @@ const NAV_LINKS = [
   { href: "/", label: "Home" },
   { href: "/#analyse", label: "Analyse Mortgage" },
   { href: "/portfolio", label: "Portfolio Manager" },
+  { href: "/compare", label: "Compare Deals" },
   { href: "/blog", label: "Blog" },
 ];
 
@@ -201,7 +202,7 @@ const S = {
   desktopLinks: {
     display: "flex",
     alignItems: "center",
-    gap: 28,
+    gap: 22,
   },
   link: {
     fontSize: 14,
