@@ -597,6 +597,40 @@ export default function PropertyDetail() {
           );
         })()}
 
+        {/* Compliance & Certificates */}
+        <div style={CARD}>
+          <h2 style={{ fontSize: 17, fontWeight: 700, marginBottom: 20 }}>Compliance & Certificates</h2>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14 }}>
+            {[
+              { label: "Gas Safety", icon: "🔥", date: p.gas_safety_expiry, annual: true },
+              { label: "EICR", icon: "⚡", date: p.eicr_expiry },
+              { label: "EPC", icon: "📊", date: p.epc_expiry, extra: p.epc_rating },
+              { label: "Landlord Insurance", icon: "🛡️", date: p.landlord_insurance_expiry },
+            ].map((cert, i) => {
+              const s = cert.date ? (() => {
+                const d = new Date(cert.date);
+                const now = new Date();
+                if (d < now) return { label: "Expired", color: "#EF4444", bg: "#FEE2E2" };
+                const days = Math.round((d - now) / 86400000);
+                if (days <= 30) return { label: `${days}d left`, color: "#F59E0B", bg: "#FEF3C7" };
+                return { label: "Valid", color: "#10B981", bg: "#ECFDF5" };
+              })() : { label: "Not set", color: "#9CA3AF", bg: "#F3F4F6" };
+              return (
+                <div key={i} style={{ background: s.bg, borderRadius: 12, padding: "16px 14px", textAlign: "center" }}>
+                  <p style={{ fontSize: 20, marginBottom: 6 }}>{cert.icon}</p>
+                  <p style={{ fontSize: 12, fontWeight: 600, color: "#374151", marginBottom: 4 }}>{cert.label}</p>
+                  {cert.extra && <p style={{ fontSize: 18, fontWeight: 700, color: "#4F46E5", marginBottom: 4 }}>{cert.extra}</p>}
+                  <p style={{ fontSize: 11, fontWeight: 600, color: s.color }}>{s.label}</p>
+                  {cert.date && <p style={{ fontSize: 10, color: "#9CA3AF", marginTop: 2 }}>{new Date(cert.date).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}</p>}
+                </div>
+              );
+            })}
+          </div>
+          <p style={{ fontSize: 11, color: "#9CA3AF", marginTop: 12, fontStyle: "italic" }}>
+            Update certificate dates on the <a href={`/portfolio/${p.id}/edit`} style={{ color: "#6366F1" }}>edit page</a>. Gas safety must be renewed annually; EICRs every 5 years.
+          </p>
+        </div>
+
         {/* Rent Increase Tracker */}
         <div style={CARD}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>

@@ -25,6 +25,8 @@ const DEFAULTS = {
   agent_name: "", management_fee_pct: "", tenant_find_fee: "",
   buildings_insurance: "", landlord_insurance: "", ground_rent: "",
   service_charge: "", maintenance_reserve: "50",
+  gas_safety_expiry: "", eicr_expiry: "", epc_rating: "", epc_expiry: "",
+  landlord_insurance_expiry: "",
 };
 
 export default function EditProperty() {
@@ -300,6 +302,39 @@ export default function EditProperty() {
                 <input style={INPUT} type="number" value={form.maintenance_reserve} onChange={(e) => set("maintenance_reserve", e.target.value)} />
               </div>
             </div>
+          </div>
+
+          {/* 6. Compliance & Certificates */}
+          <div style={CARD}>
+            <h2 style={SECTION_TITLE}>6. Compliance & Certificates</h2>
+            <div style={{ ...GRID2, marginBottom: 16 }}>
+              <div>
+                <label style={LABEL}>Gas Safety Certificate Expiry</label>
+                <input style={INPUT} type="date" value={form.gas_safety_expiry || ""} onChange={(e) => set("gas_safety_expiry", e.target.value)} />
+              </div>
+              <div>
+                <label style={LABEL}>Electrical Certificate (EICR) Expiry</label>
+                <input style={INPUT} type="date" value={form.eicr_expiry || ""} onChange={(e) => set("eicr_expiry", e.target.value)} />
+              </div>
+            </div>
+            <div style={{ ...GRID3, marginBottom: 16 }}>
+              <div>
+                <label style={LABEL}>EPC Rating</label>
+                <select style={INPUT} value={form.epc_rating || ""} onChange={(e) => set("epc_rating", e.target.value)}>
+                  <option value="">Not set</option>
+                  {["A", "B", "C", "D", "E", "F", "G"].map(r => <option key={r} value={r}>{r}</option>)}
+                </select>
+              </div>
+              <div>
+                <label style={LABEL}>EPC Expiry Date</label>
+                <input style={INPUT} type="date" value={form.epc_expiry || ""} onChange={(e) => set("epc_expiry", e.target.value)} />
+              </div>
+              <div>
+                <label style={LABEL}>Landlord Insurance Expiry</label>
+                <input style={INPUT} type="date" value={form.landlord_insurance_expiry || ""} onChange={(e) => set("landlord_insurance_expiry", e.target.value)} />
+              </div>
+            </div>
+            <p style={{ fontSize: 12, color: "#9CA3AF", fontStyle: "italic" }}>Keep certificates up to date to maintain legal compliance.</p>
           </div>
 
           <button type="submit" disabled={saving} style={{ width: "100%", padding: "14px 0", background: saving ? "#A5B4FC" : "linear-gradient(135deg, #6366F1, #4F46E5)", color: "white", border: "none", borderRadius: 12, fontSize: 16, fontWeight: 600, cursor: saving ? "not-allowed" : "pointer" }}>

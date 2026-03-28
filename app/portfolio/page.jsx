@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import {
-  Building2, Plus, Trash2, ArrowLeft, ChevronRight, AlertTriangle, CheckCircle, Clock,
+  Building2, Plus, Search, ChevronUp, ChevronDown, AlertTriangle, CheckCircle, Clock,
+  Flame, Zap, Shield, FileText,
 } from "lucide-react";
 
 const fmt = (n) => "£" + Number(n || 0).toLocaleString("en-GB");
@@ -13,31 +14,38 @@ function calcCashFlow(p) {
   const agentFee = (p.monthly_rent * (p.management_fee_pct || 0)) / 100;
   const costs = agentFee + (p.buildings_insurance || 0) + (p.landlord_insurance || 0) +
     (p.ground_rent || 0) + (p.service_charge || 0) + (p.maintenance_reserve || 0);
-  return { net: p.monthly_rent - (p.monthly_payment || 0) - costs, income: p.monthly_rent, costs: (p.monthly_payment || 0) + costs };
+  return {
+    net: p.monthly_rent - (p.monthly_payment || 0) - costs,
+    agentFee,
+    costs: (p.monthly_payment || 0) + costs,
+  };
 }
 
 function grossYield(p) {
   if (!p.estimated_value || !p.monthly_rent) return null;
-  return ((p.monthly_rent * 12) / p.estimated_value * 100).toFixed(1);
+  return ((p.monthly_rent * 12) / p.estimated_value * 100);
 }
 
-function tenancyStatus(p) {
-  if (p.tenancy_status === "vacant") return { label: "Vacant", color: "#EF4444", bg: "#FEE2E2", icon: AlertTriangle };
-  if (p.tenancy_status === "rolling_periodic") return { label: "Rolling (Periodic)", color: "#6366F1", bg: "#EEF2FF", icon: CheckCircle };
-  if (!p.tenancy_end) return { label: "Tenanted", color: "#10B981", bg: "#ECFDF5", icon: CheckCircle };
-  const days = Math.round((new Date(p.tenancy_end) - new Date()) / (1000 * 60 * 60 * 24));
-  if (days < 0) return { label: "End date passed", color: "#F59E0B", bg: "#FEF3C7", icon: Clock };
-  if (days <= 90) return { label: "Ending soon", color: "#F59E0B", bg: "#FEF3C7", icon: Clock };
-  return { label: "Fixed term", color: "#10B981", bg: "#ECFDF5", icon: CheckCircle };
+function isOccupied(p) {
+  return p.tenancy_status !== "vacant" && p.is_tenanted !== false;
 }
 
-function rentReviewEligible(p) {
-  if (!p.last_rent_increase_date) return true;
+function rentReviewInfo(p) {
+  if (!p.last_rent_increase_date) return { eligible: true, months: null };
   const months = Math.round((new Date() - new Date(p.last_rent_increase_date)) / (1000 * 60 * 60 * 24 * 30.44));
-  return months >= 12;
+  return { eligible: months >= 12, months };
 }
 
-const CARD = { background: "white", border: "1px solid #E5E7EB", borderRadius: 16, padding: 28, marginBottom: 24 };
+function complianceStatus(dateStr) {
+  if (!dateStr) return "missing";
+  const d = new Date(dateStr);
+  const now = new Date();
+  if (d < now) return "expired";
+  const days = Math.round((d - now) / (1000 * 60 * 60 * 24));
+  if (days <= 30) return "expiring";
+  return "valid";
+}
+
 const PAGE = { minHeight: "100vh", background: "#FAFBFC", fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" };
 
 export default function PortfolioDashboard() {
@@ -45,6 +53,10 @@ export default function PortfolioDashboard() {
   const router = useRouter();
   const [properties, setProperties] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [sortKey, setSortKey] = useState("address");
+  const [sortDir, setSortDir] = useState("asc");
+  const [filterStatus, setFilterStatus] = useState("all");
+  const [search, setSearch] = useState("");
 
   useEffect(() => {
     if (status === "unauthenticated") router.push("/auth/signin");
@@ -65,11 +77,49 @@ export default function PortfolioDashboard() {
     }
   };
 
-  const handleDelete = async (id) => {
-    if (!confirm("Delete this property? This cannot be undone.")) return;
-    await fetch(`/api/portfolio/${id}`, { method: "DELETE" });
-    setProperties((prev) => prev.filter((p) => p.id !== id));
+  const handleSort = (key) => {
+    if (sortKey === key) {
+      setSortDir(sortDir === "asc" ? "desc" : "asc");
+    } else {
+      setSortKey(key);
+      setSortDir("asc");
+    }
   };
+
+  const filtered = useMemo(() => {
+    let list = [...properties];
+
+    // Filter by status
+    if (filterStatus === "occupied") list = list.filter(isOccupied);
+    if (filterStatus === "vacant") list = list.filter(p => !isOccupied(p));
+
+    // Search
+    if (search.trim()) {
+      const q = search.toLowerCase();
+      list = list.filter(p => (p.address || "").toLowerCase().includes(q) || (p.tenant_name || "").toLowerCase().includes(q));
+    }
+
+    // Sort
+    list.sort((a, b) => {
+      let va, vb;
+      switch (sortKey) {
+        case "address": va = (a.address || "").toLowerCase(); vb = (b.address || "").toLowerCase(); break;
+        case "status": va = isOccupied(a) ? 0 : 1; vb = isOccupied(b) ? 0 : 1; break;
+        case "tenant": va = (a.tenant_name || "").toLowerCase(); vb = (b.tenant_name || "").toLowerCase(); break;
+        case "rent": va = a.monthly_rent || 0; vb = b.monthly_rent || 0; break;
+        case "mortgage": va = a.monthly_payment || 0; vb = b.monthly_payment || 0; break;
+        case "agentFee": va = (a.monthly_rent * (a.management_fee_pct || 0)) / 100; vb = (b.monthly_rent * (b.management_fee_pct || 0)) / 100; break;
+        case "profit": va = calcCashFlow(a).net; vb = calcCashFlow(b).net; break;
+        case "yield": va = grossYield(a) || 0; vb = grossYield(b) || 0; break;
+        case "rentReview": va = rentReviewInfo(a).eligible ? 0 : 1; vb = rentReviewInfo(b).eligible ? 0 : 1; break;
+        default: va = 0; vb = 0;
+      }
+      if (typeof va === "string") return sortDir === "asc" ? va.localeCompare(vb) : vb.localeCompare(va);
+      return sortDir === "asc" ? va - vb : vb - va;
+    });
+
+    return list;
+  }, [properties, filterStatus, search, sortKey, sortDir]);
 
   if (status === "loading" || loading) {
     return (
@@ -85,34 +135,30 @@ export default function PortfolioDashboard() {
   const totalIncome = properties.reduce((s, p) => s + (p.monthly_rent || 0), 0);
   const totalCosts = properties.reduce((s, p) => s + calcCashFlow(p).costs, 0);
   const totalNet = totalIncome - totalCosts;
-  const avgYield = properties.filter(p => grossYield(p)).length
-    ? (properties.filter(p => grossYield(p)).reduce((s, p) => s + parseFloat(grossYield(p)), 0) / properties.filter(p => grossYield(p)).length).toFixed(1)
-    : null;
+  const totalValue = properties.reduce((s, p) => s + (p.estimated_value || 0), 0);
+  const yieldProps = properties.filter(p => grossYield(p));
+  const avgYield = yieldProps.length ? (yieldProps.reduce((s, p) => s + grossYield(p), 0) / yieldProps.length).toFixed(1) : null;
+  const eligibleCount = properties.filter(p => rentReviewInfo(p).eligible).length;
+  const vacantCount = properties.filter(p => !isOccupied(p)).length;
 
   return (
     <div style={PAGE}>
-      {/* Header */}
-      <div style={{ borderBottom: "1px solid #E5E7EB", background: "white", padding: "16px 24px" }}>
-        <div style={{ maxWidth: 1100, margin: "0 auto", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <button onClick={() => router.push("/")} style={{ background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 8, color: "#6366F1", fontSize: 14, fontWeight: 500 }}>
-            <ArrowLeft size={18} /> Back to Mortgage AI Calc
-          </button>
-          <button onClick={() => router.push("/portfolio/add")} style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 20px", background: "linear-gradient(135deg, #6366F1, #4F46E5)", color: "white", border: "none", borderRadius: 10, fontSize: 14, fontWeight: 600, cursor: "pointer" }}>
+      <div style={{ maxWidth: 1300, margin: "0 auto", padding: "32px 20px" }}>
+        {/* Header */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 28 }}>
+          <div>
+            <h1 style={{ fontSize: 28, fontWeight: 700, marginBottom: 4, display: "flex", alignItems: "center", gap: 10 }}>
+              <Building2 size={28} color="#6366F1" /> Portfolio Manager
+            </h1>
+            <p style={{ fontSize: 14, color: "#6B7280" }}>Track your buy-to-let properties, cash flow, and yields.</p>
+          </div>
+          <button onClick={() => router.push("/portfolio/add")} style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 22px", background: "linear-gradient(135deg, #6366F1, #4F46E5)", color: "white", border: "none", borderRadius: 10, fontSize: 14, fontWeight: 600, cursor: "pointer" }}>
             <Plus size={16} /> Add Property
           </button>
         </div>
-      </div>
-
-      <div style={{ maxWidth: 1100, margin: "0 auto", padding: "40px 20px" }}>
-        <div style={{ marginBottom: 32 }}>
-          <h1 style={{ fontSize: 32, fontWeight: 700, marginBottom: 8, display: "flex", alignItems: "center", gap: 12 }}>
-            <Building2 size={32} color="#6366F1" /> Portfolio Manager
-          </h1>
-          <p style={{ fontSize: 15, color: "#666" }}>Track your buy-to-let properties, cash flow, and yields.</p>
-        </div>
 
         {properties.length === 0 ? (
-          <div style={{ ...CARD, textAlign: "center", padding: "60px 20px" }}>
+          <div style={{ background: "white", border: "1px solid #E5E7EB", borderRadius: 16, padding: "60px 20px", textAlign: "center" }}>
             <div style={{ width: 72, height: 72, borderRadius: 20, background: "#EEF2FF", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 20px", color: "#6366F1" }}>
               <Building2 size={32} />
             </div>
@@ -124,94 +170,242 @@ export default function PortfolioDashboard() {
           </div>
         ) : (
           <>
-            {/* Summary bar */}
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14, marginBottom: 20 }}>
+            {/* Summary cards */}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 12 }} className="grid-cols-4">
               {[
                 { label: "Total Properties", value: properties.length, raw: true },
+                { label: "Portfolio Value", value: totalValue > 0 ? fmt(totalValue) : "—" },
                 { label: "Monthly Income", value: fmt(Math.round(totalIncome)), color: "#10B981" },
                 { label: "Monthly Costs", value: fmt(Math.round(totalCosts)), color: "#EF4444" },
-                { label: "Net Monthly Profit", value: fmt(Math.round(totalNet)), color: totalNet >= 0 ? "#10B981" : "#EF4444" },
               ].map((s, i) => (
-                <div key={i} style={{ background: "white", border: "1px solid #E5E7EB", borderRadius: 14, padding: "18px 20px" }}>
-                  <p style={{ fontSize: 12, color: "#666", marginBottom: 6 }}>{s.label}</p>
-                  <p style={{ fontSize: s.raw ? 28 : 20, fontWeight: 700, color: s.color || "#111" }}>{s.raw ? s.value : s.value}</p>
-                  {avgYield && i === 0 && <p style={{ fontSize: 12, color: "#6B7280", marginTop: 4 }}>Avg yield: {avgYield}%</p>}
+                <div key={i} style={{ background: "white", border: "1px solid #E5E7EB", borderRadius: 12, padding: "16px 18px" }}>
+                  <p style={{ fontSize: 11, color: "#6B7280", marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.5px" }}>{s.label}</p>
+                  <p style={{ fontSize: s.raw ? 26 : 18, fontWeight: 700, color: s.color || "#111" }}>{s.raw ? s.value : s.value}</p>
+                </div>
+              ))}
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 24 }} className="grid-cols-4">
+              {[
+                { label: "Net Monthly Profit", value: fmt(Math.round(totalNet)), color: totalNet >= 0 ? "#10B981" : "#EF4444" },
+                { label: "Average Yield", value: avgYield ? avgYield + "%" : "—", color: "#6366F1" },
+                { label: "Eligible for Rent Review", value: eligibleCount, raw: true, color: eligibleCount > 0 ? "#065F46" : "#6B7280" },
+                { label: "Vacant Properties", value: vacantCount, raw: true, color: vacantCount > 0 ? "#EF4444" : "#10B981" },
+              ].map((s, i) => (
+                <div key={i} style={{ background: "white", border: "1px solid #E5E7EB", borderRadius: 12, padding: "16px 18px" }}>
+                  <p style={{ fontSize: 11, color: "#6B7280", marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.5px" }}>{s.label}</p>
+                  <p style={{ fontSize: s.raw ? 26 : 18, fontWeight: 700, color: s.color || "#111" }}>{s.raw ? s.value : s.value}</p>
                 </div>
               ))}
             </div>
 
-            {/* Tenancy & Rent Summary */}
-            {(() => {
-              const eligible = properties.filter(rentReviewEligible).length;
-              const rolling = properties.filter(p => p.tenancy_status === "rolling_periodic").length;
-              const vacant = properties.filter(p => p.tenancy_status === "vacant").length;
-              if (eligible === 0 && rolling === 0 && vacant === 0) return null;
-              return (
-                <div style={{ display: "flex", gap: 12, marginBottom: 32, flexWrap: "wrap" }}>
-                  {eligible > 0 && (
-                    <div style={{ padding: "10px 16px", background: "#F0FDF4", border: "1px solid #BBF7D0", borderRadius: 10, fontSize: 13, color: "#065F46", fontWeight: 500 }}>
-                      {eligible} {eligible === 1 ? "property" : "properties"} eligible for rent review
-                    </div>
-                  )}
-                  {rolling > 0 && (
-                    <div style={{ padding: "10px 16px", background: "#EEF2FF", border: "1px solid #C7D2FE", borderRadius: 10, fontSize: 13, color: "#4338CA", fontWeight: 500 }}>
-                      {rolling} on rolling periodic {rolling === 1 ? "tenancy" : "tenancies"}
-                    </div>
-                  )}
-                  {vacant > 0 && (
-                    <div style={{ padding: "10px 16px", background: "#FEE2E2", border: "1px solid #FECACA", borderRadius: 10, fontSize: 13, color: "#991B1B", fontWeight: 500 }}>
-                      {vacant} vacant {vacant === 1 ? "property" : "properties"}
-                    </div>
-                  )}
-                </div>
-              );
-            })()}
+            {/* Filter bar */}
+            <div style={{ display: "flex", gap: 12, marginBottom: 20, alignItems: "center", flexWrap: "wrap" }}>
+              <div style={{ display: "flex", gap: 2, background: "white", border: "1px solid #E5E7EB", borderRadius: 10, padding: 3 }}>
+                {[
+                  { key: "all", label: "All" },
+                  { key: "occupied", label: "Occupied" },
+                  { key: "vacant", label: "Vacant" },
+                ].map((f) => (
+                  <button
+                    key={f.key}
+                    onClick={() => setFilterStatus(f.key)}
+                    style={{
+                      padding: "7px 16px",
+                      border: "none",
+                      borderRadius: 8,
+                      fontSize: 13,
+                      fontWeight: filterStatus === f.key ? 600 : 400,
+                      background: filterStatus === f.key ? "#EEF2FF" : "transparent",
+                      color: filterStatus === f.key ? "#4F46E5" : "#6B7280",
+                      cursor: "pointer",
+                      fontFamily: "inherit",
+                    }}
+                  >
+                    {f.label}
+                  </button>
+                ))}
+              </div>
+              <div style={{ position: "relative", flex: 1, maxWidth: 280 }}>
+                <Search size={16} style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", color: "#9CA3AF" }} />
+                <input
+                  type="text"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Search by address or tenant..."
+                  style={{ width: "100%", padding: "9px 14px 9px 36px", border: "1px solid #E5E7EB", borderRadius: 10, fontSize: 13, outline: "none", background: "white", boxSizing: "border-box" }}
+                />
+              </div>
+              <span style={{ fontSize: 12, color: "#9CA3AF" }}>{filtered.length} of {properties.length}</span>
+            </div>
 
-            {/* Properties grid */}
-            <div style={{ display: "grid", gridTemplateColumns: properties.length > 2 ? "1fr 1fr" : "1fr 1fr", gap: 20 }}>
-              {properties.map((p) => {
-                const { net: cf } = calcCashFlow(p);
-                const gy = grossYield(p);
-                const ts = tenancyStatus(p);
-                const TsIcon = ts.icon;
-                return (
-                  <div key={p.id} style={{ background: "white", border: "1px solid #E5E7EB", borderRadius: 16, padding: 24 }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 14 }}>
-                      <div style={{ flex: 1, marginRight: 12 }}>
-                        <h3 style={{ fontSize: 15, fontWeight: 700, marginBottom: 6, lineHeight: 1.3 }}>
-                          {p.address?.split(",")[0] || p.address}
-                        </h3>
-                        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                          <span style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "3px 10px", background: ts.bg, color: ts.color, borderRadius: 20, fontSize: 12, fontWeight: 500 }}>
-                            <TsIcon size={11} /> {ts.label}
+            {/* Desktop table */}
+            <div className="portfolio-table-desktop" style={{ background: "white", border: "1px solid #E5E7EB", borderRadius: 14, overflow: "hidden" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+                <thead>
+                  <tr style={{ background: "#F9FAFB", borderBottom: "1px solid #E5E7EB" }}>
+                    {[
+                      { key: "address", label: "Property", width: "20%" },
+                      { key: "status", label: "Status", width: "8%" },
+                      { key: "tenant", label: "Tenant", width: "12%" },
+                      { key: "rent", label: "Rent (pcm)", width: "9%" },
+                      { key: "mortgage", label: "Mortgage (pcm)", width: "9%" },
+                      { key: "agentFee", label: "Agent Fee (pcm)", width: "9%" },
+                      { key: "profit", label: "Net Profit (pcm)", width: "10%" },
+                      { key: "yield", label: "Gross Yield", width: "8%" },
+                      { key: "rentReview", label: "Rent Review", width: "8%" },
+                      { key: null, label: "Compliance", width: "7%" },
+                    ].map((col) => (
+                      <th
+                        key={col.label}
+                        onClick={col.key ? () => handleSort(col.key) : undefined}
+                        style={{
+                          padding: "12px 14px",
+                          textAlign: "left",
+                          fontWeight: 600,
+                          fontSize: 11,
+                          color: "#6B7280",
+                          textTransform: "uppercase",
+                          letterSpacing: "0.5px",
+                          cursor: col.key ? "pointer" : "default",
+                          userSelect: "none",
+                          width: col.width,
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                          {col.label}
+                          {col.key && sortKey === col.key && (
+                            sortDir === "asc" ? <ChevronUp size={12} /> : <ChevronDown size={12} />
+                          )}
+                        </span>
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {filtered.map((p, i) => {
+                    const { net, agentFee } = calcCashFlow(p);
+                    const gy = grossYield(p);
+                    const occupied = isOccupied(p);
+                    const rr = rentReviewInfo(p);
+                    const gas = complianceStatus(p.gas_safety_expiry);
+                    const eicr = complianceStatus(p.eicr_expiry);
+
+                    return (
+                      <tr
+                        key={p.id}
+                        style={{
+                          borderBottom: i < filtered.length - 1 ? "1px solid #F3F4F6" : "none",
+                          background: i % 2 === 1 ? "#FAFBFC" : "white",
+                          transition: "background 0.15s",
+                        }}
+                        onMouseEnter={(e) => e.currentTarget.style.background = "#F5F3FF"}
+                        onMouseLeave={(e) => e.currentTarget.style.background = i % 2 === 1 ? "#FAFBFC" : "white"}
+                      >
+                        {/* Address */}
+                        <td style={{ padding: "14px 14px" }}>
+                          <a
+                            href={`/portfolio/${p.id}`}
+                            style={{ color: "#111", fontWeight: 600, textDecoration: "none", fontSize: 13, lineHeight: 1.4 }}
+                            onMouseEnter={(e) => e.target.style.color = "#6366F1"}
+                            onMouseLeave={(e) => e.target.style.color = "#111"}
+                          >
+                            {p.address?.split(",")[0] || p.address || "—"}
+                          </a>
+                          {p.lender && <p style={{ fontSize: 11, color: "#9CA3AF", marginTop: 2 }}>{p.lender}</p>}
+                        </td>
+
+                        {/* Status */}
+                        <td style={{ padding: "14px 14px" }}>
+                          <span style={{
+                            display: "inline-flex", alignItems: "center", gap: 4,
+                            padding: "3px 10px", borderRadius: 20, fontSize: 11, fontWeight: 600,
+                            background: occupied ? "#ECFDF5" : "#FEE2E2",
+                            color: occupied ? "#065F46" : "#991B1B",
+                          }}>
+                            {occupied ? <CheckCircle size={10} /> : <AlertTriangle size={10} />}
+                            {occupied ? "Occupied" : "Vacant"}
                           </span>
-                          {p.lender && <span style={{ padding: "3px 10px", background: "#FEF3C7", color: "#92400E", borderRadius: 20, fontSize: 12 }}>{p.lender}</span>}
-                        </div>
-                      </div>
-                      <button onClick={() => handleDelete(p.id)} title="Delete" style={{ background: "#FEE2E2", border: "none", borderRadius: 8, padding: "7px 9px", cursor: "pointer", color: "#EF4444", display: "flex", alignItems: "center", flexShrink: 0 }}>
-                        <Trash2 size={13} />
-                      </button>
-                    </div>
+                        </td>
 
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 16 }}>
+                        {/* Tenant */}
+                        <td style={{ padding: "14px 14px", color: p.tenant_name ? "#374151" : "#D1D5DB" }}>
+                          {p.tenant_name || "—"}
+                        </td>
+
+                        {/* Rent */}
+                        <td style={{ padding: "14px 14px", fontWeight: 600 }}>{fmt(p.monthly_rent)}</td>
+
+                        {/* Mortgage */}
+                        <td style={{ padding: "14px 14px", color: "#6B7280" }}>{p.monthly_payment ? fmt(p.monthly_payment) : "—"}</td>
+
+                        {/* Agent Fee */}
+                        <td style={{ padding: "14px 14px", color: "#6B7280" }}>{agentFee > 0 ? fmt(Math.round(agentFee)) : "—"}</td>
+
+                        {/* Net Profit */}
+                        <td style={{ padding: "14px 14px", fontWeight: 700, color: net >= 0 ? "#10B981" : "#EF4444" }}>
+                          {fmt(Math.round(net))}
+                        </td>
+
+                        {/* Yield */}
+                        <td style={{ padding: "14px 14px", fontWeight: 600 }}>{gy ? gy.toFixed(1) + "%" : "—"}</td>
+
+                        {/* Rent Review */}
+                        <td style={{ padding: "14px 14px" }}>
+                          {rr.eligible ? (
+                            <span style={{ padding: "3px 10px", borderRadius: 20, fontSize: 11, fontWeight: 600, background: "#F0FDF4", color: "#065F46" }}>Eligible</span>
+                          ) : (
+                            <span style={{ fontSize: 11, color: "#9CA3AF" }}>{12 - rr.months}mo</span>
+                          )}
+                        </td>
+
+                        {/* Compliance */}
+                        <td style={{ padding: "14px 14px" }}>
+                          <div style={{ display: "flex", gap: 4 }}>
+                            <span title={`Gas safety: ${gas}`} style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 22, height: 22, borderRadius: 6, background: gas === "valid" ? "#ECFDF5" : gas === "expired" ? "#FEE2E2" : gas === "expiring" ? "#FEF3C7" : "#F3F4F6", color: gas === "valid" ? "#10B981" : gas === "expired" ? "#EF4444" : gas === "expiring" ? "#F59E0B" : "#D1D5DB" }}>
+                              <Flame size={11} />
+                            </span>
+                            <span title={`EICR: ${eicr}`} style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 22, height: 22, borderRadius: 6, background: eicr === "valid" ? "#ECFDF5" : eicr === "expired" ? "#FEE2E2" : eicr === "expiring" ? "#FEF3C7" : "#F3F4F6", color: eicr === "valid" ? "#10B981" : eicr === "expired" ? "#EF4444" : eicr === "expiring" ? "#F59E0B" : "#D1D5DB" }}>
+                              <Zap size={11} />
+                            </span>
+                            {p.epc_rating && (
+                              <span title={`EPC: ${p.epc_rating}`} style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 22, height: 22, borderRadius: 6, background: "#EEF2FF", color: "#4F46E5", fontSize: 10, fontWeight: 700 }}>
+                                {p.epc_rating}
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Mobile cards */}
+            <div className="portfolio-mobile-cards" style={{ display: "none" }}>
+              {filtered.map((p) => {
+                const { net } = calcCashFlow(p);
+                const occupied = isOccupied(p);
+                return (
+                  <a key={p.id} href={`/portfolio/${p.id}`} style={{ display: "block", background: "white", border: "1px solid #E5E7EB", borderRadius: 14, padding: "18px 20px", marginBottom: 12, textDecoration: "none", color: "inherit" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                      <h3 style={{ fontSize: 14, fontWeight: 700, color: "#111", lineHeight: 1.3 }}>{p.address?.split(",")[0] || p.address}</h3>
+                      <span style={{ padding: "3px 10px", borderRadius: 20, fontSize: 11, fontWeight: 600, background: occupied ? "#ECFDF5" : "#FEE2E2", color: occupied ? "#065F46" : "#991B1B" }}>
+                        {occupied ? "Occupied" : "Vacant"}
+                      </span>
+                    </div>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
                       <div>
-                        <p style={{ fontSize: 11, color: "#666", marginBottom: 3 }}>Monthly rent</p>
-                        <p style={{ fontSize: 17, fontWeight: 700 }}>{fmt(p.monthly_rent)}</p>
+                        <p style={{ fontSize: 11, color: "#9CA3AF", marginBottom: 2 }}>Rent</p>
+                        <p style={{ fontSize: 15, fontWeight: 700 }}>{fmt(p.monthly_rent)}</p>
                       </div>
                       <div>
-                        <p style={{ fontSize: 11, color: "#666", marginBottom: 3 }}>Net profit</p>
-                        <p style={{ fontSize: 17, fontWeight: 700, color: cf >= 0 ? "#10B981" : "#EF4444" }}>{fmt(Math.round(cf))}</p>
-                      </div>
-                      <div>
-                        <p style={{ fontSize: 11, color: "#666", marginBottom: 3 }}>Gross yield</p>
-                        <p style={{ fontSize: 17, fontWeight: 700 }}>{gy ? gy + "%" : "—"}</p>
+                        <p style={{ fontSize: 11, color: "#9CA3AF", marginBottom: 2 }}>Net Profit</p>
+                        <p style={{ fontSize: 15, fontWeight: 700, color: net >= 0 ? "#10B981" : "#EF4444" }}>{fmt(Math.round(net))}</p>
                       </div>
                     </div>
-
-                    <button onClick={() => router.push(`/portfolio/${p.id}`)} style={{ width: "100%", padding: "10px 0", background: "#F5F3FF", color: "#6366F1", border: "1px solid #C7D2FE", borderRadius: 10, fontSize: 13, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
-                      View Details <ChevronRight size={15} />
-                    </button>
-                  </div>
+                  </a>
                 );
               })}
             </div>

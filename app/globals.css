@@ -125,6 +125,17 @@ html {
   }
 }
 
+/* ─── Portfolio table responsive ───────────────────────────────────────────── */
+
+@media (max-width: 1024px) {
+  .portfolio-table-desktop {
+    display: none !important;
+  }
+  .portfolio-mobile-cards {
+    display: block !important;
+  }
+}
+
 /* ─── Responsive tweaks ─────────────────────────────────────────────────────── */
 
 @media (max-width: 768px) {
