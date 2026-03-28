@@ -9,6 +9,7 @@ const NAV_LINKS = [
   { href: "/", label: "Home" },
   { href: "/#analyse", label: "Analyse Mortgage" },
   { href: "/portfolio", label: "Portfolio Manager" },
+  { href: "/calculator", label: "Calculator" },
   { href: "/compare", label: "Compare Deals" },
   { href: "/blog", label: "Blog" },
 ];

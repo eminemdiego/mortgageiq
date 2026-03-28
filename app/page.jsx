@@ -779,6 +779,12 @@ function LandingPage({ onStart }) {
             </button>
             <p style={{ marginTop: 8, fontSize: 12, color: "#9CA3AF" }}>For buy-to-let &amp; investment properties</p>
           </div>
+          <div style={{ textAlign: "center" }}>
+            <button onClick={() => window.location.href = "/calculator"} style={{ ...S.heroBtn, background: "linear-gradient(135deg, #10B981, #059669)", boxShadow: "0 4px 20px rgba(16,185,129,0.3)" }}>
+              <Calculator size={18} /> Payment Calculator
+            </button>
+            <p style={{ marginTop: 8, fontSize: 12, color: "#9CA3AF" }}>Estimate your monthly payments</p>
+          </div>
         </div>
         <p style={{ marginTop: 4, fontSize: 13, color: "#999" }}>Free to use — no sign-up required</p>
         </div>
