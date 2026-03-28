@@ -80,7 +80,7 @@ export default function SignIn() {
             </div>
           </div>
 
-          <div style={{ marginBottom: 24 }}>
+          <div style={{ marginBottom: 8 }}>
             <label style={S.label}>Password</label>
             <div style={{ position: "relative" }}>
               <Lock size={18} style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", color: "#9CA3AF" }} />
@@ -93,6 +93,12 @@ export default function SignIn() {
                 style={{ ...S.input, paddingLeft: 40 }}
               />
             </div>
+          </div>
+
+          <div style={{ marginBottom: 24, textAlign: "right" }}>
+            <a href="/auth/forgot-password" style={{ fontSize: 13, color: "#6366F1", fontWeight: 500, textDecoration: "none" }}>
+              Forgot your password?
+            </a>
           </div>
 
           <button type="submit" disabled={loading} style={{ ...S.primaryBtn, opacity: loading ? 0.7 : 1, cursor: loading ? "not-allowed" : "pointer" }}>
