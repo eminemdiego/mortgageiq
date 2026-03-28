@@ -791,18 +791,30 @@ function LandingPage({ onStart }) {
       </div>
 
       {/* Features */}
-      <div style={{ maxWidth: 1000, margin: "0 auto", padding: "0 20px 80px" }}>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 20 }}>
+      <div style={{ maxWidth: 1100, margin: "0 auto", padding: "0 20px 80px" }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 20, marginBottom: 20 }} className="grid-cols-3">
           {[
-            { icon: <Upload size={22} />, title: "Smart Statement Scan", desc: "Upload your mortgage PDF and we'll extract your balance, rate, term, and lender automatically." },
-            { icon: <TrendingDown size={22} />, title: "Overpayment Strategies", desc: "See exactly how extra monthly payments shrink your term and the total interest you'll save." },
-            { icon: <Target size={22} />, title: "Rate Change Projections", desc: "What if rates go up 1%? Or drop? See how every scenario affects your monthly payments and total cost." },
+            { icon: <Upload size={22} />, title: "Smart Statement Scan", desc: "Upload your mortgage PDF and we'll extract your balance, rate, term, and lender automatically.", href: "/#analyse" },
+            { icon: <TrendingDown size={22} />, title: "Overpayment Strategies", desc: "See exactly how extra monthly payments shrink your term and the total interest you'll save.", href: "/#analyse" },
+            { icon: <Target size={22} />, title: "Rate Change Projections", desc: "What if rates go up 1%? Or drop? See how every scenario affects your monthly payments and total cost.", href: "/#analyse" },
           ].map((f, i) => (
-            <div key={i} style={{ background: "white", border: "1px solid #E5E7EB", borderRadius: 16, padding: "32px 24px" }}>
+            <a key={i} href={f.href} style={{ background: "white", border: "1px solid #E5E7EB", borderRadius: 16, padding: "32px 24px", textDecoration: "none", color: "inherit" }}>
               <div style={{ width: 48, height: 48, borderRadius: 12, background: "#EEF2FF", display: "flex", alignItems: "center", justifyContent: "center", color: "#6366F1", marginBottom: 16 }}>{f.icon}</div>
               <h3 style={{ fontSize: 16, fontWeight: 600, marginBottom: 8 }}>{f.title}</h3>
               <p style={{ fontSize: 14, color: "#666", lineHeight: 1.6, margin: 0 }}>{f.desc}</p>
-            </div>
+            </a>
+          ))}
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, maxWidth: 733, margin: "0 auto" }} className="grid-cols-2">
+          {[
+            { icon: <Building2 size={22} />, title: "Portfolio Management", desc: "Track all your buy-to-let properties in one place. Monitor rent, mortgage payments, yields, net profit, and equity across your entire portfolio at a glance.", href: "/portfolio" },
+            { icon: <Shield size={22} />, title: "Compliance Management", desc: "Never miss a certificate renewal. Upload and track gas safety, EPC, EICR, and insurance documents with automatic expiry alerts sent straight to your inbox.", href: "/portfolio" },
+          ].map((f, i) => (
+            <a key={i} href={f.href} style={{ background: "white", border: "1px solid #E5E7EB", borderRadius: 16, padding: "32px 24px", textDecoration: "none", color: "inherit" }}>
+              <div style={{ width: 48, height: 48, borderRadius: 12, background: "#EEF2FF", display: "flex", alignItems: "center", justifyContent: "center", color: "#6366F1", marginBottom: 16 }}>{f.icon}</div>
+              <h3 style={{ fontSize: 16, fontWeight: 600, marginBottom: 8 }}>{f.title}</h3>
+              <p style={{ fontSize: 14, color: "#666", lineHeight: 1.6, margin: 0 }}>{f.desc}</p>
+            </a>
           ))}
         </div>
       </div>
