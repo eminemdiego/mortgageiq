@@ -183,7 +183,7 @@ export default function PortfolioDashboard() {
 
   return (
     <div style={PAGE}>
-      <div style={{ maxWidth: 1300, margin: "0 auto", padding: "32px 20px" }}>
+      <div style={{ maxWidth: 1600, margin: "0 auto", padding: "32px 16px" }}>
         {/* Header */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 28 }}>
           <div>
@@ -295,47 +295,47 @@ export default function PortfolioDashboard() {
             </div>
 
             {/* Desktop table */}
-            <div className="portfolio-table-desktop" style={{ background: "white", border: "1px solid #E5E7EB", borderRadius: 14, overflow: "auto", WebkitOverflowScrolling: "touch" }}>
-              <table style={{ width: "100%", minWidth: 1300, borderCollapse: "collapse", fontSize: 13 }}>
+            <div className="portfolio-table-desktop" style={{ background: "white", border: "1px solid #E5E7EB", borderRadius: 14, overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
+              <table style={{ width: "100%", minWidth: 1100, borderCollapse: "collapse", fontSize: 12 }}>
                 <thead>
                   <tr style={{ background: "#F9FAFB", borderBottom: "1px solid #E5E7EB" }}>
                     {[
                       { key: "address", label: "Property" },
                       { key: "status", label: "Status" },
                       { key: "tenant", label: "Tenant" },
-                      { key: "rent", label: "Rent (pcm)" },
-                      { key: "mortgage", label: "Mortgage (pcm)" },
-                      { key: "agentFee", label: "Agent Fee (pcm)" },
-                      { key: "profit", label: "Net Profit (pcm)" },
-                      { key: "yield", label: "Gross Yield" },
+                      { key: "rent", label: "Rent" },
+                      { key: "mortgage", label: "Mortgage" },
+                      { key: "agentFee", label: "Agent" },
+                      { key: "profit", label: "Profit" },
+                      { key: "yield", label: "Yield" },
                       { key: "value", label: "Value" },
                       { key: "ltv", label: "LTV" },
                       { key: "rate", label: "Rate" },
-                      { key: "rateEnds", label: "Rate Ends" },
-                      { key: "termLeft", label: "Term Left" },
-                      { key: "rentReview", label: "Rent Review" },
-                      { key: null, label: "Compliance" },
+                      { key: "rateEnds", label: "Ends" },
+                      { key: "termLeft", label: "Term" },
+                      { key: "rentReview", label: "Review" },
+                      { key: null, label: "" },
                     ].map((col) => (
                       <th
-                        key={col.label}
+                        key={col.label || "comp"}
                         onClick={col.key ? () => handleSort(col.key) : undefined}
                         style={{
-                          padding: "12px 12px",
-                          textAlign: "left",
+                          padding: "10px 8px",
+                          textAlign: col.key === "rent" || col.key === "mortgage" || col.key === "agentFee" || col.key === "profit" || col.key === "value" ? "right" : "left",
                           fontWeight: 600,
-                          fontSize: 11,
+                          fontSize: 10,
                           color: "#6B7280",
                           textTransform: "uppercase",
-                          letterSpacing: "0.5px",
+                          letterSpacing: "0.4px",
                           cursor: col.key ? "pointer" : "default",
                           userSelect: "none",
                           whiteSpace: "nowrap",
                         }}
                       >
-                        <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                        <span style={{ display: "inline-flex", alignItems: "center", gap: 3 }}>
                           {col.label}
                           {col.key && sortKey === col.key && (
-                            sortDir === "asc" ? <ChevronUp size={12} /> : <ChevronDown size={12} />
+                            sortDir === "asc" ? <ChevronUp size={10} /> : <ChevronDown size={10} />
                           )}
                         </span>
                       </th>
@@ -349,6 +349,7 @@ export default function PortfolioDashboard() {
                     const occupied = isOccupied(p);
                     const rr = rentReviewInfo(p);
                     const compliance = getPropertyCompliance(p.id);
+                    const P = "10px 8px";
 
                     return (
                       <tr
@@ -361,114 +362,71 @@ export default function PortfolioDashboard() {
                         onMouseEnter={(e) => e.currentTarget.style.background = "#F5F3FF"}
                         onMouseLeave={(e) => e.currentTarget.style.background = i % 2 === 1 ? "#FAFBFC" : "white"}
                       >
-                        {/* Address */}
-                        <td style={{ padding: "14px 12px" }}>
-                          <a
-                            href={`/portfolio/${p.id}`}
-                            style={{ color: "#111", fontWeight: 600, textDecoration: "none", fontSize: 13, lineHeight: 1.4 }}
-                            onMouseEnter={(e) => e.target.style.color = "#6366F1"}
-                            onMouseLeave={(e) => e.target.style.color = "#111"}
-                          >
+                        <td style={{ padding: P, maxWidth: 180 }}>
+                          <a href={`/portfolio/${p.id}`} style={{ color: "#111", fontWeight: 600, textDecoration: "none", fontSize: 12, lineHeight: 1.35, display: "block" }}
+                            onMouseEnter={(e) => e.target.style.color = "#6366F1"} onMouseLeave={(e) => e.target.style.color = "#111"}>
                             {p.address?.split(",")[0] || p.address || "—"}
                           </a>
-                          {p.lender && <p style={{ fontSize: 11, color: "#9CA3AF", marginTop: 2 }}>{p.lender}</p>}
+                          {p.lender && <p style={{ fontSize: 10, color: "#9CA3AF", marginTop: 1 }}>{p.lender}</p>}
                         </td>
 
-                        {/* Status */}
-                        <td style={{ padding: "14px 12px" }}>
-                          <span style={{
-                            display: "inline-flex", alignItems: "center", gap: 4,
-                            padding: "3px 10px", borderRadius: 20, fontSize: 11, fontWeight: 600,
-                            background: occupied ? "#ECFDF5" : "#FEE2E2",
-                            color: occupied ? "#065F46" : "#991B1B",
-                          }}>
-                            {occupied ? <CheckCircle size={10} /> : <AlertTriangle size={10} />}
-                            {occupied ? "Occupied" : "Vacant"}
+                        <td style={{ padding: P }}>
+                          <span style={{ display: "inline-flex", alignItems: "center", gap: 3, padding: "2px 8px", borderRadius: 20, fontSize: 10, fontWeight: 600, background: occupied ? "#ECFDF5" : "#FEE2E2", color: occupied ? "#065F46" : "#991B1B" }}>
+                            {occupied ? <CheckCircle size={9} /> : <AlertTriangle size={9} />}
+                            {occupied ? "Let" : "Void"}
                           </span>
                         </td>
 
-                        {/* Tenant */}
-                        <td style={{ padding: "14px 12px", color: p.tenant_name ? "#374151" : "#D1D5DB" }}>
+                        <td style={{ padding: P, color: p.tenant_name ? "#374151" : "#D1D5DB", maxWidth: 110, overflow: "hidden", textOverflow: "ellipsis" }}>
                           {p.tenant_name || "—"}
                         </td>
 
-                        {/* Rent */}
-                        <td style={{ padding: "14px 12px", fontWeight: 600 }}>{fmt(p.monthly_rent)}</td>
+                        <td style={{ padding: P, fontWeight: 600, textAlign: "right" }}>{fmt(p.monthly_rent)}</td>
+                        <td style={{ padding: P, color: "#6B7280", textAlign: "right" }}>{p.monthly_payment ? fmt(p.monthly_payment) : "—"}</td>
+                        <td style={{ padding: P, color: "#6B7280", textAlign: "right" }}>{agentFee > 0 ? fmt(Math.round(agentFee)) : "—"}</td>
+                        <td style={{ padding: P, fontWeight: 700, color: net >= 0 ? "#10B981" : "#EF4444", textAlign: "right" }}>{fmt(Math.round(net))}</td>
+                        <td style={{ padding: P, fontWeight: 600 }}>{gy ? gy.toFixed(1) + "%" : "—"}</td>
+                        <td style={{ padding: P, textAlign: "right", color: "#374151" }}>{p.estimated_value ? "£" + (p.estimated_value / 1000).toFixed(0) + "k" : "—"}</td>
 
-                        {/* Mortgage */}
-                        <td style={{ padding: "14px 12px", color: "#6B7280" }}>{p.monthly_payment ? fmt(p.monthly_payment) : "—"}</td>
-
-                        {/* Agent Fee */}
-                        <td style={{ padding: "14px 12px", color: "#6B7280" }}>{agentFee > 0 ? fmt(Math.round(agentFee)) : "—"}</td>
-
-                        {/* Net Profit */}
-                        <td style={{ padding: "14px 12px", fontWeight: 700, color: net >= 0 ? "#10B981" : "#EF4444" }}>
-                          {fmt(Math.round(net))}
-                        </td>
-
-                        {/* Yield */}
-                        <td style={{ padding: "14px 12px", fontWeight: 600 }}>{gy ? gy.toFixed(1) + "%" : "—"}</td>
-
-                        {/* Value */}
-                        <td style={{ padding: "14px 12px", color: "#374151" }}>{p.estimated_value ? fmt(p.estimated_value) : "—"}</td>
-
-                        {/* LTV */}
-                        <td style={{ padding: "14px 12px" }}>
+                        <td style={{ padding: P }}>
                           {(() => {
                             if (!p.estimated_value || !p.outstanding_balance) return <span style={{ color: "#D1D5DB" }}>—</span>;
                             const ltv = (p.outstanding_balance / p.estimated_value) * 100;
                             const color = ltv > 75 ? "#EF4444" : ltv > 60 ? "#F59E0B" : "#10B981";
-                            return <span style={{ fontWeight: 600, color }}>{ltv.toFixed(1)}%</span>;
+                            return <span style={{ fontWeight: 600, color }}>{ltv.toFixed(0)}%</span>;
                           })()}
                         </td>
 
-                        {/* Rate */}
-                        <td style={{ padding: "14px 12px" }}>
+                        <td style={{ padding: P }}>
                           {p.interest_rate ? (
-                            <div>
-                              <span style={{ fontWeight: 600, color: "#374151" }}>{p.interest_rate}%</span>
-                              {p.rate_type && <p style={{ fontSize: 10, color: "#9CA3AF", marginTop: 1 }}>{p.rate_type}</p>}
-                            </div>
+                            <span style={{ fontWeight: 600, color: "#374151" }}>{p.interest_rate}%</span>
                           ) : <span style={{ color: "#D1D5DB" }}>—</span>}
                         </td>
 
-                        {/* Rate Ends */}
-                        <td style={{ padding: "14px 12px" }}>
+                        <td style={{ padding: P }}>
                           {(() => {
-                            if (!p.fixed_until) return <span style={{ fontSize: 11, color: "#9CA3AF" }}>SVR</span>;
+                            if (!p.fixed_until) return <span style={{ fontSize: 10, color: "#9CA3AF" }}>SVR</span>;
                             const end = new Date(p.fixed_until);
-                            const now = new Date();
-                            const months = Math.round((end - now) / (1000 * 60 * 60 * 24 * 30.44));
-                            const color = months <= 0 ? "#EF4444" : months <= 3 ? "#EF4444" : months <= 6 ? "#F59E0B" : "#10B981";
-                            return (
-                              <span style={{ fontSize: 12, fontWeight: 500, color }}>
-                                {end.toLocaleDateString("en-GB", { month: "short", year: "numeric" })}
-                              </span>
-                            );
+                            const months = Math.round((end - new Date()) / (1000 * 60 * 60 * 24 * 30.44));
+                            const color = months <= 3 ? "#EF4444" : months <= 6 ? "#F59E0B" : "#10B981";
+                            return <span style={{ fontSize: 11, fontWeight: 500, color }}>{end.toLocaleDateString("en-GB", { month: "short", year: "2-digit" })}</span>;
                           })()}
                         </td>
 
-                        {/* Term Left */}
-                        <td style={{ padding: "14px 12px" }}>
-                          {p.remaining_years ? (
-                            <span style={{ fontSize: 12, fontWeight: 500, color: p.remaining_years < 5 ? "#F59E0B" : "#374151" }}>
-                              {Math.round(p.remaining_years)} yrs
-                            </span>
-                          ) : <span style={{ color: "#D1D5DB" }}>—</span>}
+                        <td style={{ padding: P, color: p.remaining_years && p.remaining_years < 5 ? "#F59E0B" : "#374151" }}>
+                          {p.remaining_years ? Math.round(p.remaining_years) + "y" : "—"}
                         </td>
 
-                        {/* Rent Review */}
-                        <td style={{ padding: "14px 12px" }}>
+                        <td style={{ padding: P }}>
                           {rr.eligible ? (
-                            <span style={{ padding: "3px 10px", borderRadius: 20, fontSize: 11, fontWeight: 600, background: "#F0FDF4", color: "#065F46" }}>Eligible</span>
+                            <span style={{ padding: "2px 7px", borderRadius: 20, fontSize: 10, fontWeight: 600, background: "#F0FDF4", color: "#065F46" }}>Yes</span>
                           ) : (
-                            <span style={{ fontSize: 11, color: "#9CA3AF" }}>{12 - rr.months}mo</span>
+                            <span style={{ fontSize: 10, color: "#9CA3AF" }}>{12 - rr.months}m</span>
                           )}
                         </td>
 
-                        {/* Compliance */}
-                        <td style={{ padding: "14px 12px" }}>
-                          <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", minWidth: 24, height: 24, borderRadius: 8, background: compliance.bg, color: compliance.color, fontSize: 11, fontWeight: 700, padding: "0 6px" }}>
+                        <td style={{ padding: P }}>
+                          <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 22, height: 22, borderRadius: 6, background: compliance.bg, color: compliance.color, fontSize: 10, fontWeight: 700 }}>
                             {compliance.label}
                           </span>
                         </td>
