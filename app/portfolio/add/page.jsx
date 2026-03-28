@@ -48,8 +48,10 @@ const UPLOAD_MESSAGES = {
     [20, "Almost there..."],
   ],
   agent: [
-    [0,  "Reading agent agreement..."],
-    [5,  "Extracting fee details..."],
+    [0,  "Reading document..."],
+    [2,  "Scanning for fee details..."],
+    [5,  "Extracting agent name & fee..."],
+    [8,  "Nearly done..."],
   ],
 };
 
@@ -175,7 +177,7 @@ function UploadSlot({ config, docState, onFile, agentManual, setAgentManual }) {
             <PulsingDots />
             <span style={{ fontSize: 12, color: "#6366F1", fontWeight: 500 }}>{uploadMsg(type, elapsed)}</span>
           </div>
-          {elapsed >= 8 && (
+          {elapsed >= 8 && type !== "agent" && (
             <p style={{ fontSize: 11, color: "#9CA3AF", marginBottom: 8 }}>
               This may take up to 30 seconds for larger documents
             </p>
@@ -213,10 +215,10 @@ function UploadSlot({ config, docState, onFile, agentManual, setAgentManual }) {
         </div>
       )}
 
-      {/* Agent manual fallback */}
-      {type === "agent" && status === "idle" && (
+      {/* Agent manual fallback — shown on idle AND error */}
+      {type === "agent" && (status === "idle" || status === "error") && (
         <div style={{ marginTop: 14, paddingTop: 14, borderTop: "1px dashed #E5E7EB" }}>
-          <p style={{ fontSize: 12, color: "#6B7280", marginBottom: 10 }}>No document? Just tell us:</p>
+          <p style={{ fontSize: 12, color: "#6B7280", marginBottom: 10 }}>{status === "error" ? "Enter details manually instead:" : "Or just tell us:"}</p>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
             <div>
               <label style={LABEL}>Agent name</label>
@@ -300,7 +302,8 @@ export default function AddProperty() {
     fd.append("type", docType);
 
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 60000);
+    const timeoutMs = docType === "agent" ? 15000 : 60000;
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
     try {
       const res = await fetch("/api/portfolio-parse", { method: "POST", body: fd, signal: controller.signal });
@@ -320,7 +323,7 @@ export default function AddProperty() {
     } catch (err) {
       clearTimeout(timeoutId);
       const msg = err.name === "AbortError"
-        ? "Timed out after 60 seconds — please try again."
+        ? (docType === "agent" ? "Extraction took too long — please enter details manually below." : "Timed out — please try again.")
         : err.message;
       setDocs((prev) => ({ ...prev, [docType]: { status: "error", data: {}, error: msg } }));
     }
