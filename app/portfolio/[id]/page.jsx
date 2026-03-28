@@ -380,55 +380,6 @@ export default function PropertyDetail() {
           </div>
         )}
 
-        {/* Smart tenancy prompt — replaces old "Tenancy has expired" warning */}
-        {showTenancyPrompt && (
-          <div style={{ marginBottom: 24, padding: "20px 24px", background: "#FFFBEB", border: "1px solid #FDE68A", borderRadius: 14 }}>
-            {tenancyPromptStep === "ask" && (
-              <>
-                <p style={{ fontWeight: 700, color: "#92400E", marginBottom: 8, fontSize: 15 }}>Your original tenancy end date has passed</p>
-                <p style={{ fontSize: 13, color: "#78716C", marginBottom: 16 }}>Is this tenancy still ongoing at the same rental rate?</p>
-                <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                  <button onClick={handleTenancyStillOngoing} disabled={savingTenancy} style={{ padding: "9px 20px", background: "#10B981", color: "white", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
-                    {savingTenancy ? "Saving..." : "Yes — still ongoing"}
-                  </button>
-                  <button onClick={() => setTenancyPromptStep("left")} style={{ padding: "9px 20px", background: "white", color: "#374151", border: "1px solid #D1D5DB", borderRadius: 8, fontSize: 13, fontWeight: 500, cursor: "pointer" }}>
-                    No — tenant has left
-                  </button>
-                  <button onClick={() => setTenancyPromptStep("rent_changed")} style={{ padding: "9px 20px", background: "white", color: "#374151", border: "1px solid #D1D5DB", borderRadius: 8, fontSize: 13, fontWeight: 500, cursor: "pointer" }}>
-                    Still ongoing but rent has changed
-                  </button>
-                </div>
-              </>
-            )}
-            {tenancyPromptStep === "left" && (
-              <>
-                <p style={{ fontWeight: 700, color: "#92400E", marginBottom: 12, fontSize: 15 }}>Mark property as vacant?</p>
-                <div style={{ display: "flex", gap: 10 }}>
-                  <button onClick={handleTenantLeft} disabled={savingTenancy} style={{ padding: "9px 20px", background: "#EF4444", color: "white", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
-                    {savingTenancy ? "Saving..." : "Yes, mark as vacant"}
-                  </button>
-                  <button onClick={() => setTenancyPromptStep("ask")} style={{ padding: "9px 20px", background: "white", color: "#374151", border: "1px solid #D1D5DB", borderRadius: 8, fontSize: 13, fontWeight: 500, cursor: "pointer" }}>Back</button>
-                </div>
-              </>
-            )}
-            {tenancyPromptStep === "rent_changed" && (
-              <>
-                <p style={{ fontWeight: 700, color: "#92400E", marginBottom: 12, fontSize: 15 }}>Update rent amount</p>
-                <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 12 }}>
-                  <span style={{ fontSize: 13, color: "#6B7280" }}>New monthly rent:</span>
-                  <input type="number" value={newRentAmount} onChange={(e) => setNewRentAmount(e.target.value)} placeholder={String(p.monthly_rent)} style={{ width: 120, padding: "8px 12px", border: "1px solid #D1D5DB", borderRadius: 8, fontSize: 14 }} />
-                </div>
-                <div style={{ display: "flex", gap: 10 }}>
-                  <button onClick={handleRentChanged} disabled={savingTenancy || !newRentAmount} style={{ padding: "9px 20px", background: "#6366F1", color: "white", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer", opacity: !newRentAmount ? 0.5 : 1 }}>
-                    {savingTenancy ? "Saving..." : "Update rent & mark as rolling"}
-                  </button>
-                  <button onClick={() => setTenancyPromptStep("ask")} style={{ padding: "9px 20px", background: "white", color: "#374151", border: "1px solid #D1D5DB", borderRadius: 8, fontSize: 13, fontWeight: 500, cursor: "pointer" }}>Back</button>
-                </div>
-              </>
-            )}
-          </div>
-        )}
-
         {/* Fixed-term tenancy ending soon alert (only for non-rolling, non-vacant) */}
         {daysUntilEnd !== null && daysUntilEnd > 0 && daysUntilEnd <= 90 && !p.tenancy_status && (
           <div style={{ marginBottom: 24, padding: "16px 20px", background: "#FEF3C7", border: "1px solid #FDE68A", borderRadius: 12, display: "flex", alignItems: "center", gap: 12 }}>
@@ -507,31 +458,78 @@ export default function PropertyDetail() {
         {/* Tenancy Status */}
         {(p.tenant_name || p.tenancy_end || p.deposit_amount) && (() => {
           const te = p.tenancy_extras || {};
-          // Deposit compliance: 5-week cap since June 2019
           const fiveWeeksCap = p.monthly_rent ? Math.round((p.monthly_rent * 12) / 52 * 5) : null;
           const depositOverCap = fiveWeeksCap && p.deposit_amount > fiveWeeksCap;
-          // Countdown bar width
-          const countdownPct = p.tenancy_start && p.tenancy_end
-            ? Math.max(0, Math.min(100, (daysUntilEnd / Math.round((new Date(p.tenancy_end) - new Date(p.tenancy_start)) / 86400000)) * 100))
-            : null;
-          // Break clause
           const breakDate = te.break_clause_date ? new Date(te.break_clause_date) : null;
           const daysToBreak = breakDate ? Math.round((breakDate - new Date()) / 86400000) : null;
 
           return (
             <div style={CARD}>
-              <h2 style={{ fontSize: 17, fontWeight: 700, marginBottom: 20 }}>Tenancy</h2>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
+                <h2 style={{ fontSize: 17, fontWeight: 700 }}>Tenancy</h2>
+                {p.tenancy_status === "rolling_periodic" && (
+                  <span style={{ padding: "4px 14px", borderRadius: 20, fontSize: 12, fontWeight: 600, background: "#EEF2FF", color: "#4338CA" }}>Rolling (Periodic)</span>
+                )}
+                {p.tenancy_status === "vacant" && (
+                  <span style={{ padding: "4px 14px", borderRadius: 20, fontSize: 12, fontWeight: 600, background: "#FEE2E2", color: "#991B1B" }}>Vacant</span>
+                )}
+              </div>
 
-              {/* Core info grid */}
+              {/* Inline tenancy prompt — when end date passed and status not yet set */}
+              {showTenancyPrompt && (
+                <div style={{ marginBottom: 20, padding: "18px 20px", background: "#FFFBEB", border: "1px solid #FDE68A", borderRadius: 12 }}>
+                  {tenancyPromptStep === "ask" && (
+                    <>
+                      <p style={{ fontWeight: 600, color: "#92400E", marginBottom: 8, fontSize: 14 }}>Your original tenancy end date has passed. Is this tenancy still ongoing at the same rental rate?</p>
+                      <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                        <button onClick={handleTenancyStillOngoing} disabled={savingTenancy} style={{ padding: "8px 18px", background: "#10B981", color: "white", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+                          {savingTenancy ? "Saving..." : "Yes — still ongoing"}
+                        </button>
+                        <button onClick={() => setTenancyPromptStep("left")} style={{ padding: "8px 18px", background: "white", color: "#374151", border: "1px solid #D1D5DB", borderRadius: 8, fontSize: 13, fontWeight: 500, cursor: "pointer" }}>
+                          No — tenant has left
+                        </button>
+                        <button onClick={() => setTenancyPromptStep("rent_changed")} style={{ padding: "8px 18px", background: "white", color: "#374151", border: "1px solid #D1D5DB", borderRadius: 8, fontSize: 13, fontWeight: 500, cursor: "pointer" }}>
+                          Rent has changed
+                        </button>
+                      </div>
+                    </>
+                  )}
+                  {tenancyPromptStep === "left" && (
+                    <>
+                      <p style={{ fontWeight: 600, color: "#92400E", marginBottom: 10, fontSize: 14 }}>Mark property as vacant?</p>
+                      <div style={{ display: "flex", gap: 10 }}>
+                        <button onClick={handleTenantLeft} disabled={savingTenancy} style={{ padding: "8px 18px", background: "#EF4444", color: "white", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+                          {savingTenancy ? "Saving..." : "Yes, mark as vacant"}
+                        </button>
+                        <button onClick={() => setTenancyPromptStep("ask")} style={{ padding: "8px 18px", background: "white", color: "#374151", border: "1px solid #D1D5DB", borderRadius: 8, fontSize: 13, fontWeight: 500, cursor: "pointer" }}>Back</button>
+                      </div>
+                    </>
+                  )}
+                  {tenancyPromptStep === "rent_changed" && (
+                    <>
+                      <p style={{ fontWeight: 600, color: "#92400E", marginBottom: 10, fontSize: 14 }}>Update rent amount</p>
+                      <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 10 }}>
+                        <span style={{ fontSize: 13, color: "#6B7280" }}>New monthly rent:</span>
+                        <input type="number" value={newRentAmount} onChange={(e) => setNewRentAmount(e.target.value)} placeholder={String(p.monthly_rent)} style={{ width: 120, padding: "7px 12px", border: "1px solid #D1D5DB", borderRadius: 8, fontSize: 14 }} />
+                      </div>
+                      <div style={{ display: "flex", gap: 10 }}>
+                        <button onClick={handleRentChanged} disabled={savingTenancy || !newRentAmount} style={{ padding: "8px 18px", background: "#6366F1", color: "white", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer", opacity: !newRentAmount ? 0.5 : 1 }}>
+                          {savingTenancy ? "Saving..." : "Update & mark as rolling"}
+                        </button>
+                        <button onClick={() => setTenancyPromptStep("ask")} style={{ padding: "8px 18px", background: "white", color: "#374151", border: "1px solid #D1D5DB", borderRadius: 8, fontSize: 13, fontWeight: 500, cursor: "pointer" }}>Back</button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
+
+              {/* Core info grid — no end date */}
               <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16, marginBottom: 20 }}>
                 {p.tenant_name && (
                   <div><p style={{ fontSize: 11, color: "#6B7280", marginBottom: 3 }}>Tenant</p><p style={{ fontWeight: 600 }}>{p.tenant_name}</p></div>
                 )}
                 {p.tenancy_start && (
                   <div><p style={{ fontSize: 11, color: "#6B7280", marginBottom: 3 }}>Start date</p><p style={{ fontWeight: 600 }}>{new Date(p.tenancy_start).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}</p></div>
-                )}
-                {p.tenancy_end && (
-                  <div><p style={{ fontSize: 11, color: "#6B7280", marginBottom: 3 }}>End date</p><p style={{ fontWeight: 600 }}>{new Date(p.tenancy_end).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}</p></div>
                 )}
                 {te.notice_period_months && (
                   <div><p style={{ fontSize: 11, color: "#6B7280", marginBottom: 3 }}>Notice period</p><p style={{ fontWeight: 600 }}>{te.notice_period_months} {te.notice_period_months === 1 ? "month" : "months"}</p></div>
@@ -543,21 +541,6 @@ export default function PropertyDetail() {
                   <div><p style={{ fontSize: 11, color: "#6B7280", marginBottom: 3 }}>Max occupants</p><p style={{ fontWeight: 600 }}>{te.permitted_occupants}</p></div>
                 )}
               </div>
-
-              {/* Countdown bar */}
-              {daysUntilEnd !== null && p.tenancy_end && countdownPct !== null && (
-                <div style={{ marginBottom: 20 }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "#6B7280", marginBottom: 6 }}>
-                    <span>Tenancy progress</span>
-                    <span style={{ fontWeight: 600, color: daysUntilEnd < 0 ? "#EF4444" : daysUntilEnd <= 30 ? "#EF4444" : daysUntilEnd <= 90 ? "#F59E0B" : "#10B981" }}>
-                      {daysUntilEnd < 0 ? `Expired ${Math.abs(daysUntilEnd)} days ago` : `${daysUntilEnd} days remaining`}
-                    </span>
-                  </div>
-                  <div style={{ background: "#F3F4F6", borderRadius: 8, height: 8, overflow: "hidden" }}>
-                    <div style={{ height: "100%", borderRadius: 8, width: `${100 - countdownPct}%`, background: daysUntilEnd < 0 ? "#EF4444" : daysUntilEnd <= 30 ? "#EF4444" : daysUntilEnd <= 90 ? "#F59E0B" : "#10B981", transition: "width 0.5s ease" }} />
-                  </div>
-                </div>
-              )}
 
               {/* Break clause alert */}
               {breakDate && daysToBreak !== null && (
@@ -801,13 +784,12 @@ export default function PropertyDetail() {
               <p style={{ fontSize: 13, color: "#6B7280", marginBottom: 20, paddingTop: 16 }}>
                 These costs will be factored into your cash flow and yield calculations.
               </p>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 20 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 16 }}>
                 {[
                   { key: "buildings_insurance", label: "Buildings insurance (£/month)" },
                   { key: "landlord_insurance", label: "Landlord insurance (£/month)" },
                   { key: "ground_rent", label: "Ground rent (£/month)" },
                   { key: "service_charge", label: "Service charge (£/month)" },
-                  { key: "maintenance_reserve", label: "Maintenance budget (£/month)" },
                 ].map(({ key, label }) => (
                   <div key={key}>
                     <label style={LABEL}>{label}</label>
@@ -821,6 +803,39 @@ export default function PropertyDetail() {
                     />
                   </div>
                 ))}
+              </div>
+
+              {/* Maintenance buffer */}
+              <div style={{ padding: "16px 18px", background: "#F8FAFC", border: "1px solid #E5E7EB", borderRadius: 12, marginBottom: 20 }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10, flexWrap: "wrap", gap: 10 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", fontSize: 14, fontWeight: 600, color: "#374151" }}>
+                      <input
+                        type="checkbox"
+                        checked={parseFloat(extras.maintenance_reserve) > 0}
+                        onChange={(e) => setExtras((x) => ({ ...x, maintenance_reserve: e.target.checked ? (x.maintenance_reserve && parseFloat(x.maintenance_reserve) > 0 ? x.maintenance_reserve : "100") : "0" }))}
+                        style={{ width: 16, height: 16 }}
+                      />
+                      Include maintenance buffer
+                    </label>
+                  </div>
+                  {parseFloat(extras.maintenance_reserve) > 0 && (
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <span style={{ fontSize: 13, color: "#6B7280" }}>£</span>
+                      <input
+                        style={{ width: 80, padding: "6px 10px", border: "1px solid #D1D5DB", borderRadius: 8, fontSize: 14, textAlign: "right", outline: "none" }}
+                        type="number"
+                        step="10"
+                        value={extras.maintenance_reserve}
+                        onChange={(e) => setExtras((x) => ({ ...x, maintenance_reserve: e.target.value }))}
+                      />
+                      <span style={{ fontSize: 13, color: "#6B7280" }}>/month</span>
+                    </div>
+                  )}
+                </div>
+                <p style={{ fontSize: 12, color: "#9CA3AF", margin: 0, lineHeight: 1.5 }}>
+                  Recommended monthly buffer to cover ongoing maintenance, repairs, and compliance costs (gas safety certificate, EPC, EICR, landlord insurance, etc.)
+                </p>
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
                 <button
