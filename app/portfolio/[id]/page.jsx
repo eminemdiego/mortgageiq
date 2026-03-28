@@ -298,7 +298,7 @@ export default function PropertyDetail() {
             )}
             {agentFee > 0 && (
               <div style={{ display: "flex", justifyContent: "space-between", paddingBottom: 8, color: "#6B7280" }}>
-                <span>Agent fee ({p.management_fee_pct}%)</span>
+                <span>Estate agent fee ({p.management_fee_pct}% exc. VAT)</span>
                 <span>−{fmt(Math.round(agentFee))}</span>
               </div>
             )}

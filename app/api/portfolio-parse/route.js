@@ -63,7 +63,8 @@ Rules:
 - permitted_occupants: maximum number of permitted occupants if stated, or null
 - Never guess or invent values — use null if not found.`,
 
-  agent: `You are an expert UK lettings agent agreement parser. Extract estate agent details from this management agreement or terms of business.
+  agent: `You are an expert UK lettings agent document parser. Extract estate agent details from this document.
+The document may be a management agreement, terms of business, OR a payment advice / rent statement from a letting agent.
 
 Return ONLY valid JSON (no markdown, no explanation):
 {
@@ -72,8 +73,19 @@ Return ONLY valid JSON (no markdown, no explanation):
 }
 
 Rules:
-- agent_name: full name of the letting/management agency
-- management_fee_pct: monthly management fee as a percentage number (10% → 10)
+- agent_name: full name of the letting/management agency or estate agent
+- management_fee_pct: the agent's management fee as a percentage number (10% → 10, 8.25% → 8.25)
+
+How to find the fee percentage:
+1. If a fee percentage is explicitly stated (e.g. "management fee: 10%", "our fee: 8.25%"), use that number directly.
+2. If this is a payment advice / rent statement showing amounts, CALCULATE the fee percentage:
+   - Find the gross rent received (look for "rent", "gross rent", "rent received", "rent collected")
+   - Find the agent commission/fee amount EXCLUDING VAT (look for "commission", "management fee", "our fee", "agent fee", "deduction" — use the amount BEFORE VAT is added, not the VAT-inclusive total)
+   - Calculate: (commission excluding VAT / gross rent) × 100, rounded to 2 decimal places
+   - Example: rent £1,600, commission £132.00 (exc. VAT) → 132/1600 × 100 = 8.25
+3. If VAT is shown separately (e.g. "commission £132.00 + VAT £26.40 = £158.40"), use the pre-VAT figure (£132.00).
+4. If only a VAT-inclusive commission total is shown, divide by 1.2 to get the exc. VAT figure, then calculate.
+
 - Never guess or invent values — use null if not found.`,
 };
 

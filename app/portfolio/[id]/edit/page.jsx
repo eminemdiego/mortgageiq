@@ -243,7 +243,7 @@ export default function EditProperty() {
                 <input style={INPUT} value={form.agent_name || ""} onChange={(e) => set("agent_name", e.target.value)} />
               </div>
               <div>
-                <label style={LABEL}>Management Fee (%)</label>
+                <label style={LABEL}>Estate Agent Fee (%) (exc. VAT)</label>
                 <input style={INPUT} type="number" step="0.5" value={form.management_fee_pct} onChange={(e) => set("management_fee_pct", e.target.value)} />
               </div>
               <div>

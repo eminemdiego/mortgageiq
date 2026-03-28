@@ -98,7 +98,7 @@ const DOC_CONFIGS = [
     required: false,
     fields: [
       { key: "agent_name", label: "Agent" },
-      { key: "management_fee_pct", label: "Fee", suffix: "%" },
+      { key: "management_fee_pct", label: "Fee (exc. VAT)", suffix: "%" },
     ],
   },
 ];
@@ -228,7 +228,7 @@ function UploadSlot({ config, docState, onFile, agentManual, setAgentManual }) {
               />
             </div>
             <div>
-              <label style={LABEL}>Management fee %</label>
+              <label style={LABEL}>Estate agent fee % (exc. VAT)</label>
               <input
                 style={{ ...INPUT, fontSize: 13, padding: "8px 12px" }}
                 type="number"
@@ -505,7 +505,7 @@ export default function AddProperty() {
                   <p style={{ fontSize: 13, fontWeight: 600, color: "#374151", marginBottom: 12, textTransform: "uppercase", letterSpacing: "0.05em" }}>Agent</p>
                   <div style={GRID2}>
                     <SummaryField label="Agent name" value={form.agent_name} onChange={(v) => setField("agent_name", v)} placeholder="e.g. Foxtons" />
-                    <SummaryField label="Management fee (%)" value={form.management_fee_pct} onChange={(v) => setField("management_fee_pct", v)} type="number" placeholder="10" />
+                    <SummaryField label="Estate agent fee (%) (exc. VAT)" value={form.management_fee_pct} onChange={(v) => setField("management_fee_pct", v)} type="number" placeholder="10" />
                   </div>
                 </div>
 
@@ -609,7 +609,7 @@ export default function AddProperty() {
                   <input style={INPUT} value={form.agent_name} onChange={(e) => setField("agent_name", e.target.value)} placeholder="Your Letting Agency" />
                 </div>
                 <div>
-                  <label style={LABEL}>Management fee (%)</label>
+                  <label style={LABEL}>Estate agent fee (%) (exc. VAT)</label>
                   <input style={INPUT} type="number" step="0.5" value={form.management_fee_pct} onChange={(e) => setField("management_fee_pct", e.target.value)} placeholder="10" />
                 </div>
               </div>
