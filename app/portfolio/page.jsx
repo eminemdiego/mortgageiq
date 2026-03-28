@@ -5,7 +5,6 @@ import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import {
   Building2, Plus, Search, ChevronUp, ChevronDown, AlertTriangle, CheckCircle, Clock,
-  Flame, Zap, Shield, FileText,
 } from "lucide-react";
 
 const fmt = (n) => "£" + Number(n || 0).toLocaleString("en-GB");
@@ -52,6 +51,7 @@ export default function PortfolioDashboard() {
   const { data: session, status } = useSession();
   const router = useRouter();
   const [properties, setProperties] = useState([]);
+  const [allCerts, setAllCerts] = useState({}); // { propertyId: [certs] }
   const [loading, setLoading] = useState(true);
   const [sortKey, setSortKey] = useState("address");
   const [sortDir, setSortDir] = useState("asc");
@@ -70,12 +70,39 @@ export default function PortfolioDashboard() {
     try {
       const res = await fetch("/api/portfolio");
       if (!res.ok) throw new Error();
-      setProperties(await res.json());
+      const props = await res.json();
+      setProperties(props);
+      // Fetch certificates for all properties in parallel
+      const certResults = await Promise.all(
+        props.map(async (p) => {
+          try {
+            const r = await fetch(`/api/portfolio/${p.id}/certificates`);
+            return { id: p.id, certs: r.ok ? await r.json() : [] };
+          } catch { return { id: p.id, certs: [] }; }
+        })
+      );
+      const certsMap = {};
+      certResults.forEach(({ id, certs }) => { certsMap[id] = certs; });
+      setAllCerts(certsMap);
     } catch {
     } finally {
       setLoading(false);
     }
   };
+
+  function getPropertyCompliance(propertyId) {
+    const certs = allCerts[propertyId] || [];
+    let expired = 0, expiring = 0;
+    certs.forEach(c => {
+      const s = complianceStatus(c.expiry_date);
+      if (s === "expired") expired++;
+      else if (s === "expiring") expiring++;
+    });
+    if (expired > 0) return { label: expired, color: "#EF4444", bg: "#FEE2E2" };
+    if (expiring > 0) return { label: expiring, color: "#F59E0B", bg: "#FEF3C7" };
+    if (certs.length > 0) return { label: "✓", color: "#10B981", bg: "#ECFDF5" };
+    return { label: "—", color: "#D1D5DB", bg: "#F3F4F6" };
+  }
 
   const handleSort = (key) => {
     if (sortKey === key) {
@@ -140,6 +167,14 @@ export default function PortfolioDashboard() {
   const avgYield = yieldProps.length ? (yieldProps.reduce((s, p) => s + grossYield(p), 0) / yieldProps.length).toFixed(1) : null;
   const eligibleCount = properties.filter(p => rentReviewInfo(p).eligible).length;
   const vacantCount = properties.filter(p => !isOccupied(p)).length;
+  const certsExpiring = properties.reduce((s, p) => {
+    const c = getPropertyCompliance(p.id);
+    return s + (c.color === "#F59E0B" ? parseInt(c.label) || 0 : 0);
+  }, 0);
+  const certsExpired = properties.reduce((s, p) => {
+    const c = getPropertyCompliance(p.id);
+    return s + (c.color === "#EF4444" ? parseInt(c.label) || 0 : 0);
+  }, 0);
 
   return (
     <div style={PAGE}>
@@ -197,6 +232,22 @@ export default function PortfolioDashboard() {
                 </div>
               ))}
             </div>
+
+            {/* Compliance overview */}
+            {(certsExpired > 0 || certsExpiring > 0) && (
+              <div style={{ display: "flex", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
+                {certsExpired > 0 && (
+                  <div style={{ padding: "10px 16px", background: "#FEE2E2", border: "1px solid #FECACA", borderRadius: 10, fontSize: 13, color: "#991B1B", fontWeight: 500 }}>
+                    {certsExpired} certificate{certsExpired > 1 ? "s" : ""} expired across portfolio
+                  </div>
+                )}
+                {certsExpiring > 0 && (
+                  <div style={{ padding: "10px 16px", background: "#FEF3C7", border: "1px solid #FDE68A", borderRadius: 10, fontSize: 13, color: "#92400E", fontWeight: 500 }}>
+                    {certsExpiring} certificate{certsExpiring > 1 ? "s" : ""} expiring soon
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Filter bar */}
             <div style={{ display: "flex", gap: 12, marginBottom: 20, alignItems: "center", flexWrap: "wrap" }}>
@@ -288,8 +339,7 @@ export default function PortfolioDashboard() {
                     const gy = grossYield(p);
                     const occupied = isOccupied(p);
                     const rr = rentReviewInfo(p);
-                    const gas = complianceStatus(p.gas_safety_expiry);
-                    const eicr = complianceStatus(p.eicr_expiry);
+                    const compliance = getPropertyCompliance(p.id);
 
                     return (
                       <tr
@@ -361,19 +411,9 @@ export default function PortfolioDashboard() {
 
                         {/* Compliance */}
                         <td style={{ padding: "14px 14px" }}>
-                          <div style={{ display: "flex", gap: 4 }}>
-                            <span title={`Gas safety: ${gas}`} style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 22, height: 22, borderRadius: 6, background: gas === "valid" ? "#ECFDF5" : gas === "expired" ? "#FEE2E2" : gas === "expiring" ? "#FEF3C7" : "#F3F4F6", color: gas === "valid" ? "#10B981" : gas === "expired" ? "#EF4444" : gas === "expiring" ? "#F59E0B" : "#D1D5DB" }}>
-                              <Flame size={11} />
-                            </span>
-                            <span title={`EICR: ${eicr}`} style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 22, height: 22, borderRadius: 6, background: eicr === "valid" ? "#ECFDF5" : eicr === "expired" ? "#FEE2E2" : eicr === "expiring" ? "#FEF3C7" : "#F3F4F6", color: eicr === "valid" ? "#10B981" : eicr === "expired" ? "#EF4444" : eicr === "expiring" ? "#F59E0B" : "#D1D5DB" }}>
-                              <Zap size={11} />
-                            </span>
-                            {p.epc_rating && (
-                              <span title={`EPC: ${p.epc_rating}`} style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 22, height: 22, borderRadius: 6, background: "#EEF2FF", color: "#4F46E5", fontSize: 10, fontWeight: 700 }}>
-                                {p.epc_rating}
-                              </span>
-                            )}
-                          </div>
+                          <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", minWidth: 24, height: 24, borderRadius: 8, background: compliance.bg, color: compliance.color, fontSize: 11, fontWeight: 700, padding: "0 6px" }}>
+                            {compliance.label}
+                          </span>
                         </td>
                       </tr>
                     );

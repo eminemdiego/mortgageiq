@@ -85,6 +85,17 @@ export default function PropertyDetail() {
   const [rentIncreaseDate, setRentIncreaseDate] = useState(new Date().toISOString().split("T")[0]);
   const [savingRentIncrease, setSavingRentIncrease] = useState(false);
 
+  // Certificates state
+  const [certificates, setCertificates] = useState([]);
+  const [certModalOpen, setCertModalOpen] = useState(null); // cert_type or null
+  const [certDateIssued, setCertDateIssued] = useState("");
+  const [certExpiryDate, setCertExpiryDate] = useState("");
+  const [certEpcRating, setCertEpcRating] = useState("");
+  const [certNotes, setCertNotes] = useState("");
+  const [certUploading, setCertUploading] = useState(false);
+  const [certSaving, setCertSaving] = useState(false);
+  const [certFileUrl, setCertFileUrl] = useState("");
+
   // Expenses state
   const [expenses, setExpenses] = useState([]);
   const [expensesOpen, setExpensesOpen] = useState(false);
@@ -101,6 +112,7 @@ export default function PropertyDetail() {
     if (session?.user?.id) {
       fetchProperty();
       fetchExpenses();
+      fetchCertificates();
     }
   }, [session, params.id]);
 
@@ -240,6 +252,92 @@ export default function PropertyDetail() {
         setShowTenancyPrompt(false);
       }
     } finally { setSavingTenancy(false); }
+  };
+
+  const fetchCertificates = async () => {
+    try {
+      const res = await fetch(`/api/portfolio/${params.id}/certificates`);
+      if (res.ok) setCertificates(await res.json());
+    } catch { /* silent */ }
+  };
+
+  const CERT_TYPES = [
+    { key: "gas_safety", label: "Gas Safety (CP12)", icon: "🔥", renewalMonths: 12 },
+    { key: "epc", label: "EPC", icon: "📊", renewalMonths: 120, hasRating: true },
+    { key: "eicr", label: "EICR", icon: "⚡", renewalMonths: 60 },
+    { key: "legionella", label: "Legionella", icon: "🦠", renewalMonths: 24 },
+    { key: "landlord_insurance", label: "Insurance", icon: "🛡️", renewalMonths: 12 },
+    { key: "smoke_co_alarms", label: "Smoke & CO", icon: "🔔", renewalMonths: 12 },
+    { key: "pat", label: "PAT Testing", icon: "🔌", renewalMonths: 12 },
+    { key: "asbestos", label: "Asbestos", icon: "⚠️", renewalMonths: null },
+  ];
+
+  const getCertStatus = (cert) => {
+    if (!cert || !cert.expiry_date) return { label: "Not set", color: "#9CA3AF", bg: "#F3F4F6" };
+    const d = new Date(cert.expiry_date);
+    const now = new Date();
+    if (d < now) return { label: "Expired", color: "#EF4444", bg: "#FEE2E2" };
+    const days = Math.round((d - now) / 86400000);
+    if (days <= 30) return { label: `${days}d left`, color: "#F59E0B", bg: "#FEF3C7" };
+    return { label: "Valid", color: "#10B981", bg: "#ECFDF5" };
+  };
+
+  const openCertModal = (certType) => {
+    const existing = certificates.find(c => c.cert_type === certType.key);
+    setCertDateIssued(existing?.date_issued || "");
+    setCertExpiryDate(existing?.expiry_date || "");
+    setCertEpcRating(existing?.epc_rating || "");
+    setCertNotes(existing?.notes || "");
+    setCertFileUrl(existing?.file_url || "");
+    setCertModalOpen(certType.key);
+  };
+
+  const handleCertDateChange = (dateIssued, certKey) => {
+    setCertDateIssued(dateIssued);
+    const ct = CERT_TYPES.find(c => c.key === certKey);
+    if (ct?.renewalMonths && dateIssued) {
+      const d = new Date(dateIssued);
+      d.setMonth(d.getMonth() + ct.renewalMonths);
+      setCertExpiryDate(d.toISOString().split("T")[0]);
+    }
+  };
+
+  const handleCertUpload = async (file) => {
+    if (!file) return;
+    setCertUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      fd.append("cert_type", certModalOpen);
+      const res = await fetch(`/api/portfolio/${params.id}/certificates/upload`, { method: "POST", body: fd });
+      const data = await res.json();
+      if (res.ok) setCertFileUrl(data.url);
+    } catch { /* silent */ }
+    finally { setCertUploading(false); }
+  };
+
+  const handleSaveCert = async () => {
+    if (!certDateIssued) return;
+    setCertSaving(true);
+    try {
+      const res = await fetch(`/api/portfolio/${params.id}/certificates`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          cert_type: certModalOpen,
+          date_issued: certDateIssued,
+          expiry_date: certExpiryDate || null,
+          notes: certNotes || null,
+          epc_rating: certEpcRating || null,
+          file_url: certFileUrl || null,
+        }),
+      });
+      if (res.ok) {
+        await fetchCertificates();
+        setCertModalOpen(null);
+      }
+    } catch { /* silent */ }
+    finally { setCertSaving(false); }
   };
 
   const handleRecordRentIncrease = async () => {
@@ -580,38 +678,109 @@ export default function PropertyDetail() {
           );
         })()}
 
+        {/* Compliance summary banner */}
+        {(() => {
+          const expiredCerts = CERT_TYPES.filter(ct => getCertStatus(certificates.find(c => c.cert_type === ct.key)).label === "Expired");
+          const expiringCerts = CERT_TYPES.filter(ct => { const s = getCertStatus(certificates.find(c => c.cert_type === ct.key)); return s.label !== "Valid" && s.label !== "Not set" && s.label !== "Expired"; });
+          const allValid = expiredCerts.length === 0 && expiringCerts.length === 0 && certificates.length > 0;
+
+          if (certificates.length === 0 && CERT_TYPES.length > 0) return null;
+
+          return (
+            <div style={{ marginBottom: 24, padding: "14px 20px", borderRadius: 12, display: "flex", alignItems: "center", gap: 12, background: expiredCerts.length > 0 ? "#FEE2E2" : expiringCerts.length > 0 ? "#FEF3C7" : "#ECFDF5", border: `1px solid ${expiredCerts.length > 0 ? "#FECACA" : expiringCerts.length > 0 ? "#FDE68A" : "#BBF7D0"}` }}>
+              {expiredCerts.length > 0 ? <AlertTriangle size={18} color="#EF4444" /> : expiringCerts.length > 0 ? <AlertTriangle size={18} color="#F59E0B" /> : <CheckCircle size={18} color="#10B981" />}
+              <p style={{ fontSize: 14, fontWeight: 600, color: expiredCerts.length > 0 ? "#991B1B" : expiringCerts.length > 0 ? "#92400E" : "#065F46", margin: 0 }}>
+                {expiredCerts.length > 0 ? `${expiredCerts.length} certificate${expiredCerts.length > 1 ? "s" : ""} expired` : ""}
+                {expiredCerts.length > 0 && expiringCerts.length > 0 ? ", " : ""}
+                {expiringCerts.length > 0 ? `${expiringCerts.length} expiring soon` : ""}
+                {allValid ? "All certificates valid" : ""}
+              </p>
+            </div>
+          );
+        })()}
+
         {/* Compliance & Certificates */}
         <div style={CARD}>
           <h2 style={{ fontSize: 17, fontWeight: 700, marginBottom: 20 }}>Compliance & Certificates</h2>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14 }}>
-            {[
-              { label: "Gas Safety", icon: "🔥", date: p.gas_safety_expiry, annual: true },
-              { label: "EICR", icon: "⚡", date: p.eicr_expiry },
-              { label: "EPC", icon: "📊", date: p.epc_expiry, extra: p.epc_rating },
-              { label: "Landlord Insurance", icon: "🛡️", date: p.landlord_insurance_expiry },
-            ].map((cert, i) => {
-              const s = cert.date ? (() => {
-                const d = new Date(cert.date);
-                const now = new Date();
-                if (d < now) return { label: "Expired", color: "#EF4444", bg: "#FEE2E2" };
-                const days = Math.round((d - now) / 86400000);
-                if (days <= 30) return { label: `${days}d left`, color: "#F59E0B", bg: "#FEF3C7" };
-                return { label: "Valid", color: "#10B981", bg: "#ECFDF5" };
-              })() : { label: "Not set", color: "#9CA3AF", bg: "#F3F4F6" };
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12 }}>
+            {CERT_TYPES.map((ct) => {
+              const cert = certificates.find(c => c.cert_type === ct.key);
+              const s = getCertStatus(cert);
               return (
-                <div key={i} style={{ background: s.bg, borderRadius: 12, padding: "16px 14px", textAlign: "center" }}>
-                  <p style={{ fontSize: 20, marginBottom: 6 }}>{cert.icon}</p>
-                  <p style={{ fontSize: 12, fontWeight: 600, color: "#374151", marginBottom: 4 }}>{cert.label}</p>
-                  {cert.extra && <p style={{ fontSize: 18, fontWeight: 700, color: "#4F46E5", marginBottom: 4 }}>{cert.extra}</p>}
+                <div key={ct.key} style={{ background: s.bg, borderRadius: 12, padding: "16px 14px", textAlign: "center", cursor: "pointer", transition: "transform 0.15s", border: `1px solid ${s.color}22` }} onClick={() => openCertModal(ct)}>
+                  <p style={{ fontSize: 20, marginBottom: 6 }}>{ct.icon}</p>
+                  <p style={{ fontSize: 11, fontWeight: 600, color: "#374151", marginBottom: 4 }}>{ct.label}</p>
+                  {cert?.epc_rating && <p style={{ fontSize: 18, fontWeight: 700, color: "#4F46E5", marginBottom: 2 }}>{cert.epc_rating}</p>}
                   <p style={{ fontSize: 11, fontWeight: 600, color: s.color }}>{s.label}</p>
-                  {cert.date && <p style={{ fontSize: 10, color: "#9CA3AF", marginTop: 2 }}>{new Date(cert.date).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}</p>}
+                  {cert?.expiry_date && <p style={{ fontSize: 10, color: "#9CA3AF", marginTop: 2 }}>{new Date(cert.expiry_date).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}</p>}
+                  {cert?.file_url ? (
+                    <a href={cert.file_url} target="_blank" rel="noopener" onClick={(e) => e.stopPropagation()} style={{ display: "inline-block", marginTop: 6, fontSize: 10, color: "#6366F1", fontWeight: 600, textDecoration: "none" }}>View PDF</a>
+                  ) : (
+                    <p style={{ fontSize: 10, color: "#6366F1", marginTop: 6, fontWeight: 500 }}>Upload</p>
+                  )}
                 </div>
               );
             })}
           </div>
-          <p style={{ fontSize: 11, color: "#9CA3AF", marginTop: 12, fontStyle: "italic" }}>
-            Update certificate dates on the <a href={`/portfolio/${p.id}/edit`} style={{ color: "#6366F1" }}>edit page</a>. Gas safety must be renewed annually; EICRs every 5 years.
-          </p>
+
+          {/* Certificate modal */}
+          {certModalOpen && (() => {
+            const ct = CERT_TYPES.find(c => c.key === certModalOpen);
+            return (
+              <div style={{ marginTop: 20, padding: "20px 22px", background: "#F8FAFC", borderRadius: 12, border: "1px solid #E5E7EB" }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+                  <h3 style={{ fontSize: 15, fontWeight: 700, margin: 0 }}>{ct.icon} {ct.label}</h3>
+                  <button onClick={() => setCertModalOpen(null)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 18, color: "#9CA3AF" }}>✕</button>
+                </div>
+
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
+                  <div>
+                    <label style={LABEL}>Date issued</label>
+                    <input type="date" value={certDateIssued} onChange={(e) => handleCertDateChange(e.target.value, certModalOpen)} style={INPUT} />
+                  </div>
+                  <div>
+                    <label style={LABEL}>Expiry date {ct.renewalMonths ? "(auto-calculated)" : ""}</label>
+                    <input type="date" value={certExpiryDate} onChange={(e) => setCertExpiryDate(e.target.value)} style={INPUT} />
+                  </div>
+                </div>
+
+                {ct.hasRating && (
+                  <div style={{ marginBottom: 14 }}>
+                    <label style={LABEL}>EPC Rating</label>
+                    <select value={certEpcRating} onChange={(e) => setCertEpcRating(e.target.value)} style={{ ...INPUT, width: 100 }}>
+                      <option value="">—</option>
+                      {["A", "B", "C", "D", "E", "F", "G"].map(r => <option key={r} value={r}>{r}</option>)}
+                    </select>
+                    {certEpcRating && ["F", "G"].includes(certEpcRating) && (
+                      <p style={{ fontSize: 12, color: "#EF4444", marginTop: 4 }}>Rating must be E or above to legally rent out.</p>
+                    )}
+                  </div>
+                )}
+
+                <div style={{ marginBottom: 14 }}>
+                  <label style={LABEL}>Notes (optional)</label>
+                  <input type="text" value={certNotes} onChange={(e) => setCertNotes(e.target.value)} placeholder="e.g. Engineer name, reference number" style={INPUT} />
+                </div>
+
+                <div style={{ marginBottom: 16 }}>
+                  <label style={LABEL}>Upload certificate (PDF)</label>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <label style={{ padding: "8px 16px", background: "white", border: "1px solid #D1D5DB", borderRadius: 8, fontSize: 13, cursor: "pointer", fontWeight: 500, color: "#374151" }}>
+                      {certUploading ? "Uploading..." : certFileUrl ? "Replace file" : "Choose file"}
+                      <input type="file" accept=".pdf,.jpg,.jpeg,.png" onChange={(e) => handleCertUpload(e.target.files?.[0])} style={{ display: "none" }} />
+                    </label>
+                    {certFileUrl && (
+                      <a href={certFileUrl} target="_blank" rel="noopener" style={{ fontSize: 13, color: "#6366F1", fontWeight: 500 }}>View current file</a>
+                    )}
+                  </div>
+                </div>
+
+                <button onClick={handleSaveCert} disabled={certSaving || !certDateIssued} style={{ padding: "10px 24px", background: certSaving || !certDateIssued ? "#A5B4FC" : "linear-gradient(135deg, #6366F1, #4F46E5)", color: "white", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: certSaving || !certDateIssued ? "not-allowed" : "pointer" }}>
+                  {certSaving ? "Saving..." : "Save Certificate"}
+                </button>
+              </div>
+            );
+          })()}
         </div>
 
         {/* Rent Increase Tracker */}

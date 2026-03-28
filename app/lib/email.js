@@ -148,3 +148,61 @@ export function buildWelcomeEmail(firstName) {
 </body>
 </html>`;
 }
+
+export function buildCertificateAlertEmail(alerts) {
+  const siteUrl = process.env.NEXTAUTH_URL || "https://mortgageaicalc.co.uk";
+  const expired = alerts.filter(a => a.status === "expired");
+  const expiring = alerts.filter(a => a.status === "expiring");
+
+  const rows = alerts.map(a => {
+    const color = a.status === "expired" ? "#EF4444" : "#F59E0B";
+    const bg = a.status === "expired" ? "#FEE2E2" : "#FEF3C7";
+    const label = a.status === "expired" ? "EXPIRED" : "EXPIRING SOON";
+    return `
+      <tr>
+        <td style="padding: 12px 16px; border-bottom: 1px solid #F3F4F6; font-size: 14px; color: #374151;">${a.address}</td>
+        <td style="padding: 12px 16px; border-bottom: 1px solid #F3F4F6; font-size: 14px; color: #374151;">${a.certLabel}</td>
+        <td style="padding: 12px 16px; border-bottom: 1px solid #F3F4F6; font-size: 14px; color: #6B7280;">${a.expiryDate}</td>
+        <td style="padding: 12px 16px; border-bottom: 1px solid #F3F4F6;">
+          <span style="padding: 3px 10px; border-radius: 20px; font-size: 11px; font-weight: 600; background: ${bg}; color: ${color};">${label}</span>
+        </td>
+      </tr>`;
+  }).join("");
+
+  return `
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
+<body style="margin: 0; padding: 0; background: #F4F4F5; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+  <div style="max-width: 600px; margin: 0 auto; padding: 48px 24px;">
+    <div style="text-align: center; margin-bottom: 32px;">
+      <div style="display: inline-block; width: 48px; height: 48px; border-radius: 12px; background: linear-gradient(135deg, #6366F1, #4F46E5); line-height: 48px; text-align: center; font-size: 22px; color: white; font-weight: bold;">M</div>
+    </div>
+    <div style="background: white; border-radius: 16px; border: 1px solid #E5E7EB; padding: 36px 32px;">
+      <h1 style="font-size: 22px; font-weight: 700; color: #111827; margin: 0 0 8px;">Compliance Certificate Alert</h1>
+      <p style="font-size: 14px; color: #6B7280; margin: 0 0 24px; line-height: 1.6;">
+        ${expired.length > 0 ? `<strong style="color: #EF4444;">${expired.length} certificate${expired.length > 1 ? "s" : ""} expired.</strong> ` : ""}${expiring.length > 0 ? `<strong style="color: #F59E0B;">${expiring.length} certificate${expiring.length > 1 ? "s" : ""} expiring within 30 days.</strong>` : ""}
+      </p>
+      <table style="width: 100%; border-collapse: collapse; margin-bottom: 24px;">
+        <thead><tr style="background: #F9FAFB;">
+          <th style="padding: 10px 16px; text-align: left; font-size: 11px; color: #6B7280; text-transform: uppercase; font-weight: 600;">Property</th>
+          <th style="padding: 10px 16px; text-align: left; font-size: 11px; color: #6B7280; text-transform: uppercase; font-weight: 600;">Certificate</th>
+          <th style="padding: 10px 16px; text-align: left; font-size: 11px; color: #6B7280; text-transform: uppercase; font-weight: 600;">Expiry</th>
+          <th style="padding: 10px 16px; text-align: left; font-size: 11px; color: #6B7280; text-transform: uppercase; font-weight: 600;">Status</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+      <div style="text-align: center; margin-bottom: 24px;">
+        <a href="${siteUrl}/portfolio" style="display: inline-block; padding: 14px 40px; background: #4F46E5; color: white; text-decoration: none; border-radius: 10px; font-weight: 600; font-size: 15px;">View Portfolio</a>
+      </div>
+      <div style="border-top: 1px solid #F3F4F6; padding-top: 20px;">
+        <p style="font-size: 14px; color: #6B7280; margin: 0; line-height: 1.6;">Many thanks,<br /><strong style="color: #111827;">Dr. Ahmed Sarwar</strong></p>
+      </div>
+    </div>
+    <div style="text-align: center; margin-top: 24px;">
+      <p style="font-size: 11px; color: #D1D5DB; margin: 0;">Mortgage AI Calc &mdash; mortgageaicalc.co.uk</p>
+    </div>
+  </div>
+</body>
+</html>`;
+}
