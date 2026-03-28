@@ -71,7 +71,12 @@ export default function BlogPost() {
         if (!r.ok) { setNotFound(true); return null; }
         return r.json();
       })
-      .then((data) => { if (data) setPost(data); })
+      .then((data) => {
+        if (data) {
+          setPost(data);
+          document.title = `${data.title} — Mortgage AI Calc`;
+        }
+      })
       .catch(() => setNotFound(true))
       .finally(() => setLoading(false));
   }, [slug]);
@@ -94,8 +99,32 @@ export default function BlogPost() {
     );
   }
 
+  const jsonLd = {
+    "@context": "https://schema.org",
+    "@type": "Article",
+    headline: post.title,
+    description: post.excerpt || "",
+    datePublished: post.created_at,
+    dateModified: post.updated_at || post.created_at,
+    author: { "@type": "Person", name: "Dr. Ahmed Sarwar" },
+    publisher: {
+      "@type": "Organization",
+      name: "Mortgage AI Calc",
+      url: "https://mortgageaicalc.co.uk",
+    },
+    mainEntityOfPage: {
+      "@type": "WebPage",
+      "@id": `https://mortgageaicalc.co.uk/blog/${post.slug}`,
+    },
+    ...(post.featured_image ? { image: post.featured_image } : {}),
+  };
+
   return (
     <div style={S.page}>
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+      />
       <article style={S.article}>
         <a href="/blog" style={S.backLink}><ArrowLeft size={16} /> Back to Blog</a>
 
