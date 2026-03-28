@@ -138,6 +138,11 @@ export default function PortfolioDashboard() {
         case "agentFee": va = (a.monthly_rent * (a.management_fee_pct || 0)) / 100; vb = (b.monthly_rent * (b.management_fee_pct || 0)) / 100; break;
         case "profit": va = calcCashFlow(a).net; vb = calcCashFlow(b).net; break;
         case "yield": va = grossYield(a) || 0; vb = grossYield(b) || 0; break;
+        case "value": va = a.estimated_value || 0; vb = b.estimated_value || 0; break;
+        case "ltv": va = a.estimated_value ? ((a.outstanding_balance || 0) / a.estimated_value) * 100 : 0; vb = b.estimated_value ? ((b.outstanding_balance || 0) / b.estimated_value) * 100 : 0; break;
+        case "rate": va = a.interest_rate || 0; vb = b.interest_rate || 0; break;
+        case "rateEnds": va = a.fixed_until ? new Date(a.fixed_until).getTime() : Infinity; vb = b.fixed_until ? new Date(b.fixed_until).getTime() : Infinity; break;
+        case "termLeft": va = a.remaining_years || 0; vb = b.remaining_years || 0; break;
         case "rentReview": va = rentReviewInfo(a).eligible ? 0 : 1; vb = rentReviewInfo(b).eligible ? 0 : 1; break;
         default: va = 0; vb = 0;
       }
@@ -290,27 +295,32 @@ export default function PortfolioDashboard() {
             </div>
 
             {/* Desktop table */}
-            <div className="portfolio-table-desktop" style={{ background: "white", border: "1px solid #E5E7EB", borderRadius: 14, overflow: "hidden" }}>
-              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+            <div className="portfolio-table-desktop" style={{ background: "white", border: "1px solid #E5E7EB", borderRadius: 14, overflow: "auto", WebkitOverflowScrolling: "touch" }}>
+              <table style={{ width: "100%", minWidth: 1300, borderCollapse: "collapse", fontSize: 13 }}>
                 <thead>
                   <tr style={{ background: "#F9FAFB", borderBottom: "1px solid #E5E7EB" }}>
                     {[
-                      { key: "address", label: "Property", width: "20%" },
-                      { key: "status", label: "Status", width: "8%" },
-                      { key: "tenant", label: "Tenant", width: "12%" },
-                      { key: "rent", label: "Rent (pcm)", width: "9%" },
-                      { key: "mortgage", label: "Mortgage (pcm)", width: "9%" },
-                      { key: "agentFee", label: "Agent Fee (pcm)", width: "9%" },
-                      { key: "profit", label: "Net Profit (pcm)", width: "10%" },
-                      { key: "yield", label: "Gross Yield", width: "8%" },
-                      { key: "rentReview", label: "Rent Review", width: "8%" },
-                      { key: null, label: "Compliance", width: "7%" },
+                      { key: "address", label: "Property" },
+                      { key: "status", label: "Status" },
+                      { key: "tenant", label: "Tenant" },
+                      { key: "rent", label: "Rent (pcm)" },
+                      { key: "mortgage", label: "Mortgage (pcm)" },
+                      { key: "agentFee", label: "Agent Fee (pcm)" },
+                      { key: "profit", label: "Net Profit (pcm)" },
+                      { key: "yield", label: "Gross Yield" },
+                      { key: "value", label: "Value" },
+                      { key: "ltv", label: "LTV" },
+                      { key: "rate", label: "Rate" },
+                      { key: "rateEnds", label: "Rate Ends" },
+                      { key: "termLeft", label: "Term Left" },
+                      { key: "rentReview", label: "Rent Review" },
+                      { key: null, label: "Compliance" },
                     ].map((col) => (
                       <th
                         key={col.label}
                         onClick={col.key ? () => handleSort(col.key) : undefined}
                         style={{
-                          padding: "12px 14px",
+                          padding: "12px 12px",
                           textAlign: "left",
                           fontWeight: 600,
                           fontSize: 11,
@@ -319,7 +329,6 @@ export default function PortfolioDashboard() {
                           letterSpacing: "0.5px",
                           cursor: col.key ? "pointer" : "default",
                           userSelect: "none",
-                          width: col.width,
                           whiteSpace: "nowrap",
                         }}
                       >
@@ -353,7 +362,7 @@ export default function PortfolioDashboard() {
                         onMouseLeave={(e) => e.currentTarget.style.background = i % 2 === 1 ? "#FAFBFC" : "white"}
                       >
                         {/* Address */}
-                        <td style={{ padding: "14px 14px" }}>
+                        <td style={{ padding: "14px 12px" }}>
                           <a
                             href={`/portfolio/${p.id}`}
                             style={{ color: "#111", fontWeight: 600, textDecoration: "none", fontSize: 13, lineHeight: 1.4 }}
@@ -366,7 +375,7 @@ export default function PortfolioDashboard() {
                         </td>
 
                         {/* Status */}
-                        <td style={{ padding: "14px 14px" }}>
+                        <td style={{ padding: "14px 12px" }}>
                           <span style={{
                             display: "inline-flex", alignItems: "center", gap: 4,
                             padding: "3px 10px", borderRadius: 20, fontSize: 11, fontWeight: 600,
@@ -379,29 +388,77 @@ export default function PortfolioDashboard() {
                         </td>
 
                         {/* Tenant */}
-                        <td style={{ padding: "14px 14px", color: p.tenant_name ? "#374151" : "#D1D5DB" }}>
+                        <td style={{ padding: "14px 12px", color: p.tenant_name ? "#374151" : "#D1D5DB" }}>
                           {p.tenant_name || "—"}
                         </td>
 
                         {/* Rent */}
-                        <td style={{ padding: "14px 14px", fontWeight: 600 }}>{fmt(p.monthly_rent)}</td>
+                        <td style={{ padding: "14px 12px", fontWeight: 600 }}>{fmt(p.monthly_rent)}</td>
 
                         {/* Mortgage */}
-                        <td style={{ padding: "14px 14px", color: "#6B7280" }}>{p.monthly_payment ? fmt(p.monthly_payment) : "—"}</td>
+                        <td style={{ padding: "14px 12px", color: "#6B7280" }}>{p.monthly_payment ? fmt(p.monthly_payment) : "—"}</td>
 
                         {/* Agent Fee */}
-                        <td style={{ padding: "14px 14px", color: "#6B7280" }}>{agentFee > 0 ? fmt(Math.round(agentFee)) : "—"}</td>
+                        <td style={{ padding: "14px 12px", color: "#6B7280" }}>{agentFee > 0 ? fmt(Math.round(agentFee)) : "—"}</td>
 
                         {/* Net Profit */}
-                        <td style={{ padding: "14px 14px", fontWeight: 700, color: net >= 0 ? "#10B981" : "#EF4444" }}>
+                        <td style={{ padding: "14px 12px", fontWeight: 700, color: net >= 0 ? "#10B981" : "#EF4444" }}>
                           {fmt(Math.round(net))}
                         </td>
 
                         {/* Yield */}
-                        <td style={{ padding: "14px 14px", fontWeight: 600 }}>{gy ? gy.toFixed(1) + "%" : "—"}</td>
+                        <td style={{ padding: "14px 12px", fontWeight: 600 }}>{gy ? gy.toFixed(1) + "%" : "—"}</td>
+
+                        {/* Value */}
+                        <td style={{ padding: "14px 12px", color: "#374151" }}>{p.estimated_value ? fmt(p.estimated_value) : "—"}</td>
+
+                        {/* LTV */}
+                        <td style={{ padding: "14px 12px" }}>
+                          {(() => {
+                            if (!p.estimated_value || !p.outstanding_balance) return <span style={{ color: "#D1D5DB" }}>—</span>;
+                            const ltv = (p.outstanding_balance / p.estimated_value) * 100;
+                            const color = ltv > 75 ? "#EF4444" : ltv > 60 ? "#F59E0B" : "#10B981";
+                            return <span style={{ fontWeight: 600, color }}>{ltv.toFixed(1)}%</span>;
+                          })()}
+                        </td>
+
+                        {/* Rate */}
+                        <td style={{ padding: "14px 12px" }}>
+                          {p.interest_rate ? (
+                            <div>
+                              <span style={{ fontWeight: 600, color: "#374151" }}>{p.interest_rate}%</span>
+                              {p.rate_type && <p style={{ fontSize: 10, color: "#9CA3AF", marginTop: 1 }}>{p.rate_type}</p>}
+                            </div>
+                          ) : <span style={{ color: "#D1D5DB" }}>—</span>}
+                        </td>
+
+                        {/* Rate Ends */}
+                        <td style={{ padding: "14px 12px" }}>
+                          {(() => {
+                            if (!p.fixed_until) return <span style={{ fontSize: 11, color: "#9CA3AF" }}>SVR</span>;
+                            const end = new Date(p.fixed_until);
+                            const now = new Date();
+                            const months = Math.round((end - now) / (1000 * 60 * 60 * 24 * 30.44));
+                            const color = months <= 0 ? "#EF4444" : months <= 3 ? "#EF4444" : months <= 6 ? "#F59E0B" : "#10B981";
+                            return (
+                              <span style={{ fontSize: 12, fontWeight: 500, color }}>
+                                {end.toLocaleDateString("en-GB", { month: "short", year: "numeric" })}
+                              </span>
+                            );
+                          })()}
+                        </td>
+
+                        {/* Term Left */}
+                        <td style={{ padding: "14px 12px" }}>
+                          {p.remaining_years ? (
+                            <span style={{ fontSize: 12, fontWeight: 500, color: p.remaining_years < 5 ? "#F59E0B" : "#374151" }}>
+                              {Math.round(p.remaining_years)} yrs
+                            </span>
+                          ) : <span style={{ color: "#D1D5DB" }}>—</span>}
+                        </td>
 
                         {/* Rent Review */}
-                        <td style={{ padding: "14px 14px" }}>
+                        <td style={{ padding: "14px 12px" }}>
                           {rr.eligible ? (
                             <span style={{ padding: "3px 10px", borderRadius: 20, fontSize: 11, fontWeight: 600, background: "#F0FDF4", color: "#065F46" }}>Eligible</span>
                           ) : (
@@ -410,7 +467,7 @@ export default function PortfolioDashboard() {
                         </td>
 
                         {/* Compliance */}
-                        <td style={{ padding: "14px 14px" }}>
+                        <td style={{ padding: "14px 12px" }}>
                           <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", minWidth: 24, height: 24, borderRadius: 8, background: compliance.bg, color: compliance.color, fontSize: 11, fontWeight: 700, padding: "0 6px" }}>
                             {compliance.label}
                           </span>

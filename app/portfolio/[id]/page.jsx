@@ -553,6 +553,54 @@ export default function PropertyDetail() {
           </div>
         </div>
 
+        {/* Mortgage Deal */}
+        {(p.interest_rate || p.outstanding_balance || p.remaining_years) && (
+          <div style={CARD}>
+            <h2 style={{ fontSize: 17, fontWeight: 700, marginBottom: 20 }}>Mortgage Deal</h2>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16, marginBottom: p.fixed_until ? 16 : 0 }}>
+              {p.interest_rate && (
+                <div>
+                  <p style={{ fontSize: 11, color: "#6B7280", marginBottom: 3 }}>Current Rate</p>
+                  <p style={{ fontSize: 20, fontWeight: 700, color: "#111" }}>{p.interest_rate}%</p>
+                  {p.rate_type && <p style={{ fontSize: 12, color: "#6366F1", marginTop: 2 }}>{p.rate_type}</p>}
+                </div>
+              )}
+              {p.outstanding_balance && p.estimated_value && (
+                <div>
+                  <p style={{ fontSize: 11, color: "#6B7280", marginBottom: 3 }}>LTV</p>
+                  {(() => {
+                    const ltv = (p.outstanding_balance / p.estimated_value) * 100;
+                    const color = ltv > 75 ? "#EF4444" : ltv > 60 ? "#F59E0B" : "#10B981";
+                    return <p style={{ fontSize: 20, fontWeight: 700, color }}>{ltv.toFixed(1)}%</p>;
+                  })()}
+                  <p style={{ fontSize: 12, color: "#9CA3AF", marginTop: 2 }}>{fmt(p.outstanding_balance)} / {fmt(p.estimated_value)}</p>
+                </div>
+              )}
+              {p.remaining_years && (
+                <div>
+                  <p style={{ fontSize: 11, color: "#6B7280", marginBottom: 3 }}>Term Remaining</p>
+                  <p style={{ fontSize: 20, fontWeight: 700, color: p.remaining_years < 5 ? "#F59E0B" : "#111" }}>{Math.round(p.remaining_years * 10) / 10} years</p>
+                </div>
+              )}
+            </div>
+            {p.fixed_until && (() => {
+              const end = new Date(p.fixed_until);
+              const now = new Date();
+              const months = Math.round((end - now) / (1000 * 60 * 60 * 24 * 30.44));
+              const color = months <= 0 ? "#EF4444" : months <= 3 ? "#EF4444" : months <= 6 ? "#F59E0B" : "#10B981";
+              const bg = months <= 0 ? "#FEE2E2" : months <= 3 ? "#FEE2E2" : months <= 6 ? "#FEF3C7" : "#ECFDF5";
+              return (
+                <div style={{ padding: "12px 16px", background: bg, borderRadius: 10, fontSize: 13 }}>
+                  <p style={{ fontWeight: 600, color, marginBottom: 2 }}>
+                    {months <= 0 ? "Deal has expired — now on SVR" : `Deal ends ${end.toLocaleDateString("en-GB", { month: "long", year: "numeric" })}`}
+                  </p>
+                  {months > 0 && <p style={{ color: "#6B7280" }}>{months} months remaining. {months <= 6 ? "Consider remortgaging now — most lenders allow applications 6 months early." : ""}</p>}
+                </div>
+              );
+            })()}
+          </div>
+        )}
+
         {/* Tenancy Status */}
         {(p.tenant_name || p.tenancy_end || p.deposit_amount) && (() => {
           const te = p.tenancy_extras || {};
