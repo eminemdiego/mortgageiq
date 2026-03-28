@@ -1,5 +1,6 @@
 import "./globals.css";
 import { Providers } from "./providers";
+import Navbar from "./components/Navbar";
 
 export const metadata = {
   title: "Mortgage AI Calc — Smart Mortgage Analyser",
@@ -24,7 +25,10 @@ export default function RootLayout({ children }) {
   return (
     <html lang="en">
       <body>
-        <Providers>{children}</Providers>
+        <Providers>
+          <Navbar />
+          {children}
+        </Providers>
       </body>
     </html>
   );

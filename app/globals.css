@@ -113,6 +113,18 @@ html {
   body { background: white; }
 }
 
+/* ─── Navbar responsive ────────────────────────────────────────────────────── */
+
+@media (max-width: 768px) {
+  /* Hide desktop nav links, show hamburger */
+  nav > div > div:nth-child(2) {
+    display: none !important;
+  }
+  nav > div > button:last-child {
+    display: block !important;
+  }
+}
+
 /* ─── Responsive tweaks ─────────────────────────────────────────────────────── */
 
 @media (max-width: 768px) {
