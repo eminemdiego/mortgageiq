@@ -1,6 +1,35 @@
 import { createClient } from "@supabase/supabase-js";
-import { Resend } from "resend";
 import crypto from "crypto";
+import { sendEmail, buildPasswordResetEmail } from "@/app/lib/email";
+
+// In-memory rate limit: max 3 requests per email per hour
+const rateLimitMap = new Map();
+const RATE_LIMIT_MAX = 3;
+const RATE_LIMIT_WINDOW = 60 * 60 * 1000; // 1 hour
+
+function isRateLimited(email) {
+  const key = email.toLowerCase();
+  const now = Date.now();
+  const entry = rateLimitMap.get(key);
+
+  if (!entry) {
+    rateLimitMap.set(key, { count: 1, windowStart: now });
+    return false;
+  }
+
+  // Reset window if expired
+  if (now - entry.windowStart > RATE_LIMIT_WINDOW) {
+    rateLimitMap.set(key, { count: 1, windowStart: now });
+    return false;
+  }
+
+  if (entry.count >= RATE_LIMIT_MAX) {
+    return true;
+  }
+
+  entry.count++;
+  return false;
+}
 
 export async function POST(request) {
   try {
@@ -25,17 +54,22 @@ export async function POST(request) {
       );
     }
 
-    // Always return success to avoid revealing whether the email exists
+    // Always return the same success message to avoid revealing whether the email exists
     const successResponse = new Response(
       JSON.stringify({ message: "If an account exists with that email, a reset link has been sent." }),
       { status: 200 }
     );
 
+    // Rate limit check — return same success message to avoid leaking info
+    if (isRateLimited(email)) {
+      return successResponse;
+    }
+
     // Look up the user
     const { data: user } = await supabase
       .from("users")
       .select("id, auth_provider")
-      .eq("email", email)
+      .eq("email", email.toLowerCase())
       .single();
 
     // If no user or they signed up with Google, silently succeed
@@ -47,7 +81,7 @@ export async function POST(request) {
     const token = crypto.randomBytes(32).toString("hex");
     const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString(); // 1 hour
 
-    // Store the token — clear any existing tokens for this user first
+    // Clear any existing tokens for this user, then store the new one
     await supabase
       .from("password_reset_tokens")
       .delete()
@@ -70,28 +104,14 @@ export async function POST(request) {
     }
 
     // Send the reset email
-    if (process.env.RESEND_API_KEY) {
-      const resend = new Resend(process.env.RESEND_API_KEY);
-      const baseUrl = process.env.NEXTAUTH_URL || "https://mortgageaicalc.co.uk";
-      const resetLink = `${baseUrl}/auth/reset-password?token=${token}`;
+    const baseUrl = process.env.NEXTAUTH_URL || "https://mortgageaicalc.co.uk";
+    const resetLink = `${baseUrl}/auth/reset-password?token=${token}`;
 
-      await resend.emails.send({
-        from: "Mortgage AI Calc <noreply@mortgageaicalc.co.uk>",
-        to: email,
-        subject: "Reset your password — Mortgage AI Calc",
-        html: `
-          <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 480px; margin: 0 auto; padding: 40px 20px;">
-            <div style="margin-bottom: 32px;">
-              <h1 style="font-size: 24px; font-weight: 700; color: #111; margin: 0 0 8px;">Reset your password</h1>
-              <p style="font-size: 14px; color: #666; margin: 0;">We received a request to reset your password for your Mortgage AI Calc account.</p>
-            </div>
-            <a href="${resetLink}" style="display: inline-block; padding: 12px 32px; background: linear-gradient(135deg, #6366F1, #4F46E5); color: white; text-decoration: none; border-radius: 10px; font-weight: 600; font-size: 14px;">Reset Password</a>
-            <p style="font-size: 13px; color: #999; margin-top: 24px;">This link expires in 1 hour. If you didn't request this, you can safely ignore this email.</p>
-            <p style="font-size: 12px; color: #CCC; margin-top: 32px; border-top: 1px solid #EEE; padding-top: 16px;">Mortgage AI Calc — mortgageaicalc.co.uk</p>
-          </div>
-        `,
-      });
-    }
+    await sendEmail({
+      to: email,
+      subject: "Reset your password — Mortgage AI Calc",
+      html: buildPasswordResetEmail(resetLink),
+    });
 
     return successResponse;
   } catch (error) {
