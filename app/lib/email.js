@@ -71,3 +71,80 @@ export function buildPasswordResetEmail(resetLink) {
 </body>
 </html>`;
 }
+
+export function buildWelcomeEmail(firstName) {
+  const greeting = firstName ? `Welcome, ${firstName}!` : "Welcome!";
+  const siteUrl = process.env.NEXTAUTH_URL || "https://mortgageaicalc.co.uk";
+
+  return `
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
+<body style="margin: 0; padding: 0; background: #F4F4F5; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+  <div style="max-width: 520px; margin: 0 auto; padding: 48px 24px;">
+    <!-- Logo -->
+    <div style="text-align: center; margin-bottom: 32px;">
+      <div style="display: inline-block; width: 48px; height: 48px; border-radius: 12px; background: linear-gradient(135deg, #6366F1, #4F46E5); line-height: 48px; text-align: center; font-size: 22px; color: white; font-weight: bold;">M</div>
+    </div>
+
+    <!-- Card -->
+    <div style="background: white; border-radius: 16px; border: 1px solid #E5E7EB; padding: 36px 32px;">
+      <h1 style="font-size: 24px; font-weight: 700; color: #111827; margin: 0 0 16px; text-align: center;">${greeting}</h1>
+      <p style="font-size: 14px; color: #6B7280; margin: 0 0 24px; line-height: 1.7;">
+        Thanks for creating your Mortgage AI Calc account. You now have access to powerful tools that can help you understand your mortgage and save thousands in interest.
+      </p>
+
+      <!-- Features -->
+      <div style="margin-bottom: 28px;">
+        <div style="display: flex; align-items: flex-start; gap: 12px; margin-bottom: 16px;">
+          <div style="min-width: 28px; height: 28px; border-radius: 8px; background: #EEF2FF; text-align: center; line-height: 28px; font-size: 14px;">📄</div>
+          <div>
+            <p style="font-size: 14px; font-weight: 600; color: #111827; margin: 0 0 2px;">Upload your mortgage statement</p>
+            <p style="font-size: 13px; color: #9CA3AF; margin: 0;">Our AI extracts all the details instantly — no manual entry needed.</p>
+          </div>
+        </div>
+        <div style="display: flex; align-items: flex-start; gap: 12px; margin-bottom: 16px;">
+          <div style="min-width: 28px; height: 28px; border-radius: 8px; background: #EEF2FF; text-align: center; line-height: 28px; font-size: 14px;">💰</div>
+          <div>
+            <p style="font-size: 14px; font-weight: 600; color: #111827; margin: 0 0 2px;">See exactly how much interest you'll pay</p>
+            <p style="font-size: 13px; color: #9CA3AF; margin: 0;">Get a clear breakdown and discover how overpayments could save you thousands.</p>
+          </div>
+        </div>
+        <div style="display: flex; align-items: flex-start; gap: 12px; margin-bottom: 16px;">
+          <div style="min-width: 28px; height: 28px; border-radius: 8px; background: #EEF2FF; text-align: center; line-height: 28px; font-size: 14px;">🏠</div>
+          <div>
+            <p style="font-size: 14px; font-weight: 600; color: #111827; margin: 0 0 2px;">Portfolio Manager for landlords</p>
+            <p style="font-size: 13px; color: #9CA3AF; margin: 0;">Track rental properties, cash flow, yields, and tenancy dates in one place.</p>
+          </div>
+        </div>
+        <div style="display: flex; align-items: flex-start; gap: 12px;">
+          <div style="min-width: 28px; height: 28px; border-radius: 8px; background: #EEF2FF; text-align: center; line-height: 28px; font-size: 14px;">🤖</div>
+          <div>
+            <p style="font-size: 14px; font-weight: 600; color: #111827; margin: 0 0 2px;">AI-powered recommendations</p>
+            <p style="font-size: 13px; color: #9CA3AF; margin: 0;">Personalised strategies tailored to your specific mortgage situation.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- CTA -->
+      <div style="text-align: center; margin-bottom: 28px;">
+        <a href="${siteUrl}" style="display: inline-block; padding: 14px 40px; background: #4F46E5; color: white; text-decoration: none; border-radius: 10px; font-weight: 600; font-size: 15px; letter-spacing: 0.2px;">Get Started</a>
+      </div>
+
+      <!-- Sign-off -->
+      <div style="border-top: 1px solid #F3F4F6; padding-top: 20px;">
+        <p style="font-size: 14px; color: #6B7280; margin: 0; line-height: 1.6;">
+          Many thanks,<br />
+          <strong style="color: #111827;">Dr. Ahmed Sarwar</strong>
+        </p>
+      </div>
+    </div>
+
+    <!-- Footer -->
+    <div style="text-align: center; margin-top: 24px; padding-top: 20px;">
+      <p style="font-size: 11px; color: #D1D5DB; margin: 0;">Mortgage AI Calc &mdash; mortgageaicalc.co.uk</p>
+    </div>
+  </div>
+</body>
+</html>`;
+}

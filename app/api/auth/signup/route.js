@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import bcrypt from "bcryptjs";
+import { sendEmail, buildWelcomeEmail } from "@/app/lib/email";
 
 export async function POST(request) {
   try {
@@ -54,6 +55,14 @@ export async function POST(request) {
       .single();
 
     if (error) throw error;
+
+    // Send welcome email (non-blocking — don't let failures prevent signup)
+    const firstName = (newUser.name || "").split(" ")[0] || null;
+    sendEmail({
+      to: newUser.email,
+      subject: "Welcome to Mortgage AI Calc",
+      html: buildWelcomeEmail(firstName),
+    }).catch((err) => console.error("Welcome email failed:", err));
 
     return new Response(
       JSON.stringify({
