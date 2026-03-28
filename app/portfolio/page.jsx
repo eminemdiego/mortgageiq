@@ -22,11 +22,19 @@ function grossYield(p) {
 }
 
 function tenancyStatus(p) {
+  if (p.tenancy_status === "vacant") return { label: "Vacant", color: "#EF4444", bg: "#FEE2E2", icon: AlertTriangle };
+  if (p.tenancy_status === "rolling_periodic") return { label: "Rolling (Periodic)", color: "#6366F1", bg: "#EEF2FF", icon: CheckCircle };
   if (!p.tenancy_end) return { label: "Tenanted", color: "#10B981", bg: "#ECFDF5", icon: CheckCircle };
   const days = Math.round((new Date(p.tenancy_end) - new Date()) / (1000 * 60 * 60 * 24));
-  if (days < 0) return { label: "Void", color: "#EF4444", bg: "#FEE2E2", icon: AlertTriangle };
+  if (days < 0) return { label: "End date passed", color: "#F59E0B", bg: "#FEF3C7", icon: Clock };
   if (days <= 90) return { label: "Ending soon", color: "#F59E0B", bg: "#FEF3C7", icon: Clock };
-  return { label: "Tenanted", color: "#10B981", bg: "#ECFDF5", icon: CheckCircle };
+  return { label: "Fixed term", color: "#10B981", bg: "#ECFDF5", icon: CheckCircle };
+}
+
+function rentReviewEligible(p) {
+  if (!p.last_rent_increase_date) return true;
+  const months = Math.round((new Date() - new Date(p.last_rent_increase_date)) / (1000 * 60 * 60 * 24 * 30.44));
+  return months >= 12;
 }
 
 const CARD = { background: "white", border: "1px solid #E5E7EB", borderRadius: 16, padding: 28, marginBottom: 24 };
@@ -117,7 +125,7 @@ export default function PortfolioDashboard() {
         ) : (
           <>
             {/* Summary bar */}
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14, marginBottom: 32 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14, marginBottom: 20 }}>
               {[
                 { label: "Total Properties", value: properties.length, raw: true },
                 { label: "Monthly Income", value: fmt(Math.round(totalIncome)), color: "#10B981" },
@@ -131,6 +139,33 @@ export default function PortfolioDashboard() {
                 </div>
               ))}
             </div>
+
+            {/* Tenancy & Rent Summary */}
+            {(() => {
+              const eligible = properties.filter(rentReviewEligible).length;
+              const rolling = properties.filter(p => p.tenancy_status === "rolling_periodic").length;
+              const vacant = properties.filter(p => p.tenancy_status === "vacant").length;
+              if (eligible === 0 && rolling === 0 && vacant === 0) return null;
+              return (
+                <div style={{ display: "flex", gap: 12, marginBottom: 32, flexWrap: "wrap" }}>
+                  {eligible > 0 && (
+                    <div style={{ padding: "10px 16px", background: "#F0FDF4", border: "1px solid #BBF7D0", borderRadius: 10, fontSize: 13, color: "#065F46", fontWeight: 500 }}>
+                      {eligible} {eligible === 1 ? "property" : "properties"} eligible for rent review
+                    </div>
+                  )}
+                  {rolling > 0 && (
+                    <div style={{ padding: "10px 16px", background: "#EEF2FF", border: "1px solid #C7D2FE", borderRadius: 10, fontSize: 13, color: "#4338CA", fontWeight: 500 }}>
+                      {rolling} on rolling periodic {rolling === 1 ? "tenancy" : "tenancies"}
+                    </div>
+                  )}
+                  {vacant > 0 && (
+                    <div style={{ padding: "10px 16px", background: "#FEE2E2", border: "1px solid #FECACA", borderRadius: 10, fontSize: 13, color: "#991B1B", fontWeight: 500 }}>
+                      {vacant} vacant {vacant === 1 ? "property" : "properties"}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
 
             {/* Properties grid */}
             <div style={{ display: "grid", gridTemplateColumns: properties.length > 2 ? "1fr 1fr" : "1fr 1fr", gap: 20 }}>

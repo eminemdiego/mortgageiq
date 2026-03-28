@@ -73,6 +73,18 @@ export default function PropertyDetail() {
   const [savingExtras, setSavingExtras] = useState(false);
   const [extrasSaved, setExtrasSaved] = useState(false);
 
+  // Tenancy prompt state
+  const [showTenancyPrompt, setShowTenancyPrompt] = useState(false);
+  const [tenancyPromptStep, setTenancyPromptStep] = useState("ask"); // ask | left | rent_changed
+  const [newRentAmount, setNewRentAmount] = useState("");
+  const [savingTenancy, setSavingTenancy] = useState(false);
+
+  // Rent increase state
+  const [showRentIncrease, setShowRentIncrease] = useState(false);
+  const [rentIncreaseAmount, setRentIncreaseAmount] = useState("");
+  const [rentIncreaseDate, setRentIncreaseDate] = useState(new Date().toISOString().split("T")[0]);
+  const [savingRentIncrease, setSavingRentIncrease] = useState(false);
+
   // Expenses state
   const [expenses, setExpenses] = useState([]);
   const [expensesOpen, setExpensesOpen] = useState(false);
@@ -166,6 +178,90 @@ export default function PropertyDetail() {
     if (!confirm("Delete this property?")) return;
     await fetch(`/api/portfolio/${params.id}`, { method: "DELETE" });
     router.push("/portfolio");
+  };
+
+  // Check if tenancy has expired and user hasn't dismissed prompt
+  useEffect(() => {
+    if (property && property.tenancy_end && !property.tenancy_status) {
+      const days = Math.round((new Date(property.tenancy_end) - new Date()) / (1000 * 60 * 60 * 24));
+      if (days < 0) setShowTenancyPrompt(true);
+    }
+  }, [property]);
+
+  const handleTenancyStillOngoing = async () => {
+    setSavingTenancy(true);
+    try {
+      const res = await fetch(`/api/portfolio/${params.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tenancy_status: "rolling_periodic" }),
+      });
+      if (res.ok) {
+        const updated = await res.json();
+        setProperty(updated);
+        setShowTenancyPrompt(false);
+      }
+    } finally { setSavingTenancy(false); }
+  };
+
+  const handleTenantLeft = async () => {
+    setSavingTenancy(true);
+    try {
+      const res = await fetch(`/api/portfolio/${params.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tenancy_status: "vacant", is_tenanted: false }),
+      });
+      if (res.ok) {
+        const updated = await res.json();
+        setProperty(updated);
+        setShowTenancyPrompt(false);
+      }
+    } finally { setSavingTenancy(false); }
+  };
+
+  const handleRentChanged = async () => {
+    if (!newRentAmount) return;
+    setSavingTenancy(true);
+    try {
+      const res = await fetch(`/api/portfolio/${params.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          tenancy_status: "rolling_periodic",
+          previous_rent: property.monthly_rent,
+          monthly_rent: parseFloat(newRentAmount),
+          last_rent_increase_date: new Date().toISOString().split("T")[0],
+        }),
+      });
+      if (res.ok) {
+        const updated = await res.json();
+        setProperty(updated);
+        setShowTenancyPrompt(false);
+      }
+    } finally { setSavingTenancy(false); }
+  };
+
+  const handleRecordRentIncrease = async () => {
+    if (!rentIncreaseAmount) return;
+    setSavingRentIncrease(true);
+    try {
+      const res = await fetch(`/api/portfolio/${params.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          previous_rent: property.monthly_rent,
+          monthly_rent: parseFloat(rentIncreaseAmount),
+          last_rent_increase_date: rentIncreaseDate,
+        }),
+      });
+      if (res.ok) {
+        const updated = await res.json();
+        setProperty(updated);
+        setShowRentIncrease(false);
+        setRentIncreaseAmount("");
+      }
+    } finally { setSavingRentIncrease(false); }
   };
 
   const handleSaveExtras = async () => {
@@ -267,17 +363,79 @@ export default function PropertyDetail() {
           </div>
         </div>
 
-        {/* Tenancy alert — 90 days */}
-        {daysUntilEnd !== null && daysUntilEnd <= 90 && (
-          <div style={{ marginBottom: 24, padding: "16px 20px", background: daysUntilEnd < 0 ? "#FEE2E2" : "#FEF3C7", border: `1px solid ${daysUntilEnd < 0 ? "#FECACA" : "#FDE68A"}`, borderRadius: 12, display: "flex", alignItems: "center", gap: 12 }}>
-            <AlertTriangle size={20} color={daysUntilEnd < 0 ? "#EF4444" : "#F59E0B"} />
+        {/* Tenancy status badge */}
+        {p.tenancy_status === "rolling_periodic" && (
+          <div style={{ marginBottom: 24, padding: "14px 20px", background: "#EEF2FF", border: "1px solid #C7D2FE", borderRadius: 12, display: "flex", alignItems: "center", gap: 12 }}>
+            <CheckCircle size={18} color="#6366F1" />
             <div>
-              <p style={{ fontWeight: 700, color: daysUntilEnd < 0 ? "#991B1B" : "#92400E", marginBottom: 2, fontSize: 14 }}>
-                {daysUntilEnd < 0 ? "Tenancy has expired" : `Tenancy ending in ${daysUntilEnd} days`}
-              </p>
-              <p style={{ fontSize: 13, color: "#6B7280" }}>
-                {daysUntilEnd < 0 ? `Expired ${Math.abs(daysUntilEnd)} days ago — contact your agent to re-let.` : "Re-let soon to avoid a void period and lost income."}
-              </p>
+              <p style={{ fontWeight: 600, color: "#4338CA", marginBottom: 2, fontSize: 14 }}>Rolling (Periodic) Tenancy</p>
+              <p style={{ fontSize: 12, color: "#6B7280" }}>Under current UK rental legislation, tenancies automatically become rolling periodic contracts after the fixed term ends.</p>
+            </div>
+          </div>
+        )}
+        {p.tenancy_status === "vacant" && (
+          <div style={{ marginBottom: 24, padding: "14px 20px", background: "#FEE2E2", border: "1px solid #FECACA", borderRadius: 12, display: "flex", alignItems: "center", gap: 12 }}>
+            <AlertTriangle size={18} color="#EF4444" />
+            <p style={{ fontWeight: 600, color: "#991B1B", fontSize: 14 }}>Property is currently vacant</p>
+          </div>
+        )}
+
+        {/* Smart tenancy prompt — replaces old "Tenancy has expired" warning */}
+        {showTenancyPrompt && (
+          <div style={{ marginBottom: 24, padding: "20px 24px", background: "#FFFBEB", border: "1px solid #FDE68A", borderRadius: 14 }}>
+            {tenancyPromptStep === "ask" && (
+              <>
+                <p style={{ fontWeight: 700, color: "#92400E", marginBottom: 8, fontSize: 15 }}>Your original tenancy end date has passed</p>
+                <p style={{ fontSize: 13, color: "#78716C", marginBottom: 16 }}>Is this tenancy still ongoing at the same rental rate?</p>
+                <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                  <button onClick={handleTenancyStillOngoing} disabled={savingTenancy} style={{ padding: "9px 20px", background: "#10B981", color: "white", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+                    {savingTenancy ? "Saving..." : "Yes — still ongoing"}
+                  </button>
+                  <button onClick={() => setTenancyPromptStep("left")} style={{ padding: "9px 20px", background: "white", color: "#374151", border: "1px solid #D1D5DB", borderRadius: 8, fontSize: 13, fontWeight: 500, cursor: "pointer" }}>
+                    No — tenant has left
+                  </button>
+                  <button onClick={() => setTenancyPromptStep("rent_changed")} style={{ padding: "9px 20px", background: "white", color: "#374151", border: "1px solid #D1D5DB", borderRadius: 8, fontSize: 13, fontWeight: 500, cursor: "pointer" }}>
+                    Still ongoing but rent has changed
+                  </button>
+                </div>
+              </>
+            )}
+            {tenancyPromptStep === "left" && (
+              <>
+                <p style={{ fontWeight: 700, color: "#92400E", marginBottom: 12, fontSize: 15 }}>Mark property as vacant?</p>
+                <div style={{ display: "flex", gap: 10 }}>
+                  <button onClick={handleTenantLeft} disabled={savingTenancy} style={{ padding: "9px 20px", background: "#EF4444", color: "white", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+                    {savingTenancy ? "Saving..." : "Yes, mark as vacant"}
+                  </button>
+                  <button onClick={() => setTenancyPromptStep("ask")} style={{ padding: "9px 20px", background: "white", color: "#374151", border: "1px solid #D1D5DB", borderRadius: 8, fontSize: 13, fontWeight: 500, cursor: "pointer" }}>Back</button>
+                </div>
+              </>
+            )}
+            {tenancyPromptStep === "rent_changed" && (
+              <>
+                <p style={{ fontWeight: 700, color: "#92400E", marginBottom: 12, fontSize: 15 }}>Update rent amount</p>
+                <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 12 }}>
+                  <span style={{ fontSize: 13, color: "#6B7280" }}>New monthly rent:</span>
+                  <input type="number" value={newRentAmount} onChange={(e) => setNewRentAmount(e.target.value)} placeholder={String(p.monthly_rent)} style={{ width: 120, padding: "8px 12px", border: "1px solid #D1D5DB", borderRadius: 8, fontSize: 14 }} />
+                </div>
+                <div style={{ display: "flex", gap: 10 }}>
+                  <button onClick={handleRentChanged} disabled={savingTenancy || !newRentAmount} style={{ padding: "9px 20px", background: "#6366F1", color: "white", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer", opacity: !newRentAmount ? 0.5 : 1 }}>
+                    {savingTenancy ? "Saving..." : "Update rent & mark as rolling"}
+                  </button>
+                  <button onClick={() => setTenancyPromptStep("ask")} style={{ padding: "9px 20px", background: "white", color: "#374151", border: "1px solid #D1D5DB", borderRadius: 8, fontSize: 13, fontWeight: 500, cursor: "pointer" }}>Back</button>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
+        {/* Fixed-term tenancy ending soon alert (only for non-rolling, non-vacant) */}
+        {daysUntilEnd !== null && daysUntilEnd > 0 && daysUntilEnd <= 90 && !p.tenancy_status && (
+          <div style={{ marginBottom: 24, padding: "16px 20px", background: "#FEF3C7", border: "1px solid #FDE68A", borderRadius: 12, display: "flex", alignItems: "center", gap: 12 }}>
+            <AlertTriangle size={20} color="#F59E0B" />
+            <div>
+              <p style={{ fontWeight: 700, color: "#92400E", marginBottom: 2, fontSize: 14 }}>Tenancy ending in {daysUntilEnd} days</p>
+              <p style={{ fontSize: 13, color: "#6B7280" }}>The fixed term ends soon. Under UK law it will automatically become a rolling periodic tenancy.</p>
             </div>
           </div>
         )}
@@ -438,6 +596,76 @@ export default function PropertyDetail() {
             </div>
           );
         })()}
+
+        {/* Rent Increase Tracker */}
+        <div style={CARD}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+            <h2 style={{ fontSize: 17, fontWeight: 700 }}>Rent Review</h2>
+            <button onClick={() => setShowRentIncrease(!showRentIncrease)} style={{ padding: "7px 16px", background: showRentIncrease ? "#F3F4F6" : "linear-gradient(135deg, #6366F1, #4F46E5)", color: showRentIncrease ? "#374151" : "white", border: "none", borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+              {showRentIncrease ? "Cancel" : "Record Rent Increase"}
+            </button>
+          </div>
+
+          {/* Eligibility status */}
+          {(() => {
+            const lastIncrease = p.last_rent_increase_date ? new Date(p.last_rent_increase_date) : null;
+            const monthsSince = lastIncrease ? Math.round((new Date() - lastIncrease) / (1000 * 60 * 60 * 24 * 30.44)) : null;
+            const eligible = !lastIncrease || monthsSince >= 12;
+            const nextEligible = lastIncrease ? new Date(lastIncrease.getTime() + 365 * 24 * 60 * 60 * 1000) : null;
+
+            return (
+              <div style={{ marginBottom: showRentIncrease ? 20 : 0 }}>
+                <div style={{ padding: "14px 18px", background: eligible ? "#F0FDF4" : "#F8FAFC", border: `1px solid ${eligible ? "#BBF7D0" : "#E5E7EB"}`, borderRadius: 10 }}>
+                  {eligible ? (
+                    <div>
+                      <p style={{ fontWeight: 600, color: "#065F46", fontSize: 14, marginBottom: 2 }}>Eligible for rent review</p>
+                      <p style={{ fontSize: 12, color: "#6B7280" }}>
+                        {lastIncrease ? `Last increase: ${lastIncrease.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })} (${monthsSince} months ago)` : "No rent increase recorded yet."}
+                        {p.previous_rent ? ` Previous rent: ${fmt(p.previous_rent)}.` : ""}
+                      </p>
+                    </div>
+                  ) : (
+                    <div>
+                      <p style={{ fontWeight: 600, color: "#374151", fontSize: 14, marginBottom: 2 }}>
+                        Last rent increase: {lastIncrease.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })} ({monthsSince} months ago)
+                      </p>
+                      <p style={{ fontSize: 12, color: "#6B7280" }}>
+                        Next eligible: {nextEligible.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })} ({12 - monthsSince} months from now).
+                        {p.previous_rent ? ` Previous rent: ${fmt(p.previous_rent)}.` : ""}
+                      </p>
+                    </div>
+                  )}
+                </div>
+                <p style={{ fontSize: 11, color: "#9CA3AF", marginTop: 8, fontStyle: "italic" }}>
+                  Under Section 13 of the Housing Act 1988, landlords may increase rent once every 12 months with proper notice.
+                </p>
+              </div>
+            );
+          })()}
+
+          {/* Record rent increase form */}
+          {showRentIncrease && (
+            <div style={{ padding: "18px 20px", background: "#F8FAFC", borderRadius: 12, border: "1px solid #E5E7EB" }}>
+              <div style={{ display: "flex", gap: 14, alignItems: "flex-end", flexWrap: "wrap", marginBottom: 14 }}>
+                <div>
+                  <label style={LABEL}>New monthly rent (£)</label>
+                  <input type="number" value={rentIncreaseAmount} onChange={(e) => setRentIncreaseAmount(e.target.value)} placeholder={String(p.monthly_rent)} style={{ ...INPUT, width: 140 }} />
+                </div>
+                <div>
+                  <label style={LABEL}>Date of increase</label>
+                  <input type="date" value={rentIncreaseDate} onChange={(e) => setRentIncreaseDate(e.target.value)} style={{ ...INPUT, width: 160 }} />
+                </div>
+                <button onClick={handleRecordRentIncrease} disabled={savingRentIncrease || !rentIncreaseAmount} style={{ padding: "10px 22px", background: "#10B981", color: "white", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer", opacity: !rentIncreaseAmount ? 0.5 : 1, height: 42 }}>
+                  {savingRentIncrease ? "Saving..." : "Save Increase"}
+                </button>
+              </div>
+              <p style={{ fontSize: 12, color: "#6B7280" }}>
+                Current rent: <strong>{fmt(p.monthly_rent)}</strong>.
+                {rentIncreaseAmount && parseFloat(rentIncreaseAmount) > p.monthly_rent && ` Increase: ${fmt(parseFloat(rentIncreaseAmount) - p.monthly_rent)}/mo (+${(((parseFloat(rentIncreaseAmount) - p.monthly_rent) / p.monthly_rent) * 100).toFixed(1)}%)`}
+              </p>
+            </div>
+          )}
+        </div>
 
         {/* What-If Scenarios */}
         <div style={CARD}>

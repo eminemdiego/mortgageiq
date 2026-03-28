@@ -20,7 +20,8 @@ const DEFAULTS = {
   fixed_until: "", monthly_payment: "", remaining_years: "", mortgage_type: "Repayment",
   lender: "", erc_percentage: "",
   monthly_rent: "", tenancy_start: "", tenancy_end: "", tenant_name: "",
-  deposit_amount: "", is_tenanted: true,
+  deposit_amount: "", is_tenanted: true, tenancy_status: "",
+  last_rent_increase_date: "", previous_rent: "",
   agent_name: "", management_fee_pct: "", tenant_find_fee: "",
   buildings_insurance: "", landlord_insurance: "", ground_rent: "",
   service_charge: "", maintenance_reserve: "50",
@@ -70,7 +71,7 @@ export default function EditProperty() {
     setSaving(true);
     try {
       const payload = { ...form };
-      const numericFields = ["bedrooms","estimated_value","purchase_price","outstanding_balance","interest_rate","monthly_payment","remaining_years","erc_percentage","monthly_rent","deposit_amount","management_fee_pct","tenant_find_fee","buildings_insurance","landlord_insurance","ground_rent","service_charge","maintenance_reserve"];
+      const numericFields = ["bedrooms","estimated_value","purchase_price","outstanding_balance","interest_rate","monthly_payment","remaining_years","erc_percentage","monthly_rent","deposit_amount","management_fee_pct","tenant_find_fee","buildings_insurance","landlord_insurance","ground_rent","service_charge","maintenance_reserve","previous_rent"];
       numericFields.forEach((f) => { if (payload[f] !== "") payload[f] = parseFloat(payload[f]) || 0; });
       const res = await fetch(`/api/portfolio/${params.id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
       if (!res.ok) { const d = await res.json(); setError(d.error || "Failed to save."); return; }
@@ -204,7 +205,7 @@ export default function EditProperty() {
           {/* 3. Tenancy Details */}
           <div style={CARD}>
             <h2 style={SECTION_TITLE}>3. Tenancy Details</h2>
-            <div style={{ ...GRID2, marginBottom: 16 }}>
+            <div style={{ ...GRID3, marginBottom: 16 }}>
               <div>
                 <label style={LABEL}>Monthly Rent (£) *</label>
                 <input style={INPUT} type="number" value={form.monthly_rent} onChange={(e) => set("monthly_rent", e.target.value)} />
@@ -213,6 +214,14 @@ export default function EditProperty() {
                 <label style={LABEL}>Deposit Amount (£)</label>
                 <input style={INPUT} type="number" value={form.deposit_amount} onChange={(e) => set("deposit_amount", e.target.value)} />
               </div>
+              <div>
+                <label style={LABEL}>Tenancy Status</label>
+                <select style={INPUT} value={form.tenancy_status || ""} onChange={(e) => set("tenancy_status", e.target.value)}>
+                  <option value="">Fixed Term</option>
+                  <option value="rolling_periodic">Rolling (Periodic)</option>
+                  <option value="vacant">Vacant</option>
+                </select>
+              </div>
             </div>
             <div style={{ ...GRID3, marginBottom: 16 }}>
               <div>
@@ -220,7 +229,7 @@ export default function EditProperty() {
                 <input style={INPUT} type="date" value={form.tenancy_start || ""} onChange={(e) => set("tenancy_start", e.target.value)} />
               </div>
               <div>
-                <label style={LABEL}>Tenancy End</label>
+                <label style={LABEL}>Tenancy End {form.tenancy_status === "rolling_periodic" ? "(optional)" : ""}</label>
                 <input style={INPUT} type="date" value={form.tenancy_end || ""} onChange={(e) => set("tenancy_end", e.target.value)} />
               </div>
               <div>
@@ -228,6 +237,17 @@ export default function EditProperty() {
                 <input style={INPUT} value={form.tenant_name || ""} onChange={(e) => set("tenant_name", e.target.value)} />
               </div>
             </div>
+            <div style={{ ...GRID2, marginBottom: 16 }}>
+              <div>
+                <label style={LABEL}>Last Rent Increase Date</label>
+                <input style={INPUT} type="date" value={form.last_rent_increase_date || ""} onChange={(e) => set("last_rent_increase_date", e.target.value)} />
+              </div>
+              <div>
+                <label style={LABEL}>Previous Rent (£)</label>
+                <input style={INPUT} type="number" value={form.previous_rent || ""} onChange={(e) => set("previous_rent", e.target.value)} />
+              </div>
+            </div>
+            <p style={{ fontSize: 12, color: "#9CA3AF", fontStyle: "italic", marginBottom: 12 }}>Under current UK rental legislation, tenancies automatically become rolling periodic contracts after the fixed term ends.</p>
             <label style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", fontSize: 14 }}>
               <input type="checkbox" checked={!!form.is_tenanted} onChange={(e) => set("is_tenanted", e.target.checked)} style={{ width: 16, height: 16 }} />
               <span style={{ fontWeight: 500 }}>Currently tenanted</span>
