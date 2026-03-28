@@ -168,6 +168,10 @@ export default function MortgageAnalyzer() {
     fixedUntil: "",
     earlyRepaymentCharge: "",
     overpaymentAllowance: "10",
+    purchasePrice: "",
+    currentValue: "",
+    depositAmount: "",
+    purchaseDate: "",
   });
 
   const [targetYears, setTargetYears] = useState("");
@@ -329,6 +333,15 @@ export default function MortgageAnalyzer() {
   }, [form, extraPayment, targetYears, adjBalance, adjYears, adjustment]);
 
   const handleAnalyze = () => {
+    // Store purchase details in form for the analysis
+    if (purchasePrice) updateForm("purchasePrice", purchasePrice);
+    if (currentValue) updateForm("currentValue", currentValue);
+    if (depositAmount) updateForm("depositAmount", depositAmount);
+    if (purchaseDate) updateForm("purchaseDate", purchaseDate);
+    if (purchasePrice && depositAmount) {
+      const origLoan = parseFloat(purchasePrice) - parseFloat(depositAmount);
+      if (origLoan > 0) updateForm("originalLoanAmount", String(origLoan));
+    }
     setStep("analyzing");
     setTimeout(() => setStep("results"), 2200);
   };
@@ -386,17 +399,35 @@ export default function MortgageAnalyzer() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [parsedData]);
 
-  // Auto-trigger analysis after upload-only extraction completes (residential only)
-  useEffect(() => {
-    if (
-      inputMethod === "upload" && parsedData && isFormValid &&
-      (mortgageCategory === "residential" || mortgageCategory === null)
-    ) {
-      const timer = setTimeout(() => handleAnalyze(), 1500);
-      return () => clearTimeout(timer);
+  // Purchase details state
+  const [purchasePrice, setPurchasePrice] = useState("");
+  const [depositPct, setDepositPct] = useState("");
+  const [depositAmount, setDepositAmount] = useState("");
+  const [purchaseDate, setPurchaseDate] = useState("");
+  const [currentValue, setCurrentValue] = useState("");
+
+  const isIslamic = parsedData?.isIslamicFinance || form.bank?.toLowerCase().includes("gatehouse") || form.bank?.toLowerCase().includes("al rayan");
+
+  const handleDepositPctChange = (pct) => {
+    setDepositPct(pct);
+    if (pct && purchasePrice) {
+      setDepositAmount(String(Math.round(parseFloat(purchasePrice) * parseFloat(pct) / 100)));
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [parsedData, inputMethod, mortgageCategory]);
+  };
+
+  const handleDepositAmountChange = (amt) => {
+    setDepositAmount(amt);
+    if (amt && purchasePrice) {
+      setDepositPct(String(Math.round((parseFloat(amt) / parseFloat(purchasePrice)) * 10000) / 100));
+    }
+  };
+
+  const handlePurchasePriceChange = (price) => {
+    setPurchasePrice(price);
+    if (depositPct && price) {
+      setDepositAmount(String(Math.round(parseFloat(price) * parseFloat(depositPct) / 100)));
+    }
+  };
 
   /* ─── Render: Landing ─────────────────────────────────────────────────────── */
 
@@ -466,26 +497,98 @@ export default function MortgageAnalyzer() {
         {inputMethod === "upload" && parsedData && (mortgageCategory === "buy_to_let" || mortgageCategory === "commercial") && (
           <BtlRedirectScreen
             category={mortgageCategory}
-            onAnalyseAnyway={() => { setMortgageCategory("residential"); handleAnalyze(); }}
+            onAnalyseAnyway={() => { setMortgageCategory("residential"); }}
           />
         )}
 
         {/* Unclear type → ask the user */}
         {inputMethod === "upload" && parsedData && mortgageCategory === "unclear" && (
           <PropertyTypeQuestion
-            onMyHome={() => { setMortgageCategory("residential"); handleAnalyze(); }}
+            onMyHome={() => { setMortgageCategory("residential"); }}
           />
         )}
 
-        {/* Residential → show analyse button */}
+        {/* Residential → purchase details + analyse button */}
         {inputMethod === "upload" && parsedData && isFormValid && (mortgageCategory === "residential" || mortgageCategory === null) && (
-          <div style={{ marginTop: 20, textAlign: "center" }}>
-            <div style={{ marginBottom: 12, fontSize: 13, color: "#10B981", fontWeight: 500 }}>
-              ✓ Details extracted — generating your analysis…
+          <div style={{ marginTop: 24 }}>
+            <div style={{ marginBottom: 16, display: "flex", alignItems: "center", gap: 8, fontSize: 14, color: "#10B981", fontWeight: 500 }}>
+              <CheckCircle size={16} /> Mortgage details extracted successfully
             </div>
-            <button onClick={handleAnalyze} style={{ ...S.primaryBtn, background: "linear-gradient(135deg, #6366F1, #4F46E5)", display: "inline-flex" }}>
-              <Zap size={18} /> Analyse My Mortgage
-            </button>
+
+            {/* Purchase Details section */}
+            <div style={{ background: "white", borderRadius: 16, border: "1px solid #E5E7EB", padding: 28, marginBottom: 24 }}>
+              <h3 style={{ fontSize: 17, fontWeight: 700, marginBottom: 6 }}>Purchase Details</h3>
+              <p style={{ fontSize: 13, color: "#6B7280", marginBottom: 20 }}>Add these details for a more comprehensive analysis including equity, LTV, and capital growth.</p>
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 16 }}>
+                <FormField label="Total Purchase Price" prefix="£" value={purchasePrice} onChange={handlePurchasePriceChange} placeholder="250,000" />
+                <FormField label="Current Estimated Value" prefix="£" value={currentValue} onChange={setCurrentValue} placeholder="320,000" />
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16, marginBottom: 16 }}>
+                <FormField label="Deposit" suffix="%" value={depositPct} onChange={handleDepositPctChange} placeholder="10" />
+                <FormField label="Deposit" prefix="£" value={depositAmount} onChange={handleDepositAmountChange} placeholder="25,000" />
+                <FormField label="Purchase Date" value={purchaseDate} onChange={setPurchaseDate} placeholder="" type="date" />
+              </div>
+
+              {/* Auto-calculated insights */}
+              {(purchasePrice || currentValue) && (() => {
+                const pp = parseFloat(purchasePrice) || 0;
+                const cv = parseFloat(currentValue) || 0;
+                const bal = parseFloat(adjBalance) || parseFloat(form.outstandingBalance) || 0;
+                const dep = parseFloat(depositAmount) || 0;
+                const origMortgage = pp > 0 ? pp - dep : 0;
+                const equity = cv > 0 ? cv - bal : 0;
+                const ltv = cv > 0 ? (bal / cv) * 100 : 0;
+                const capitalRepaid = origMortgage > 0 ? origMortgage - bal : 0;
+                const appreciation = cv > 0 && pp > 0 ? cv - pp : 0;
+                const financingLabel = isIslamic ? "Original Financing Amount" : "Original Mortgage Amount";
+
+                return (
+                  <div style={{ marginTop: 8, padding: "18px 20px", background: "#F8FAFC", borderRadius: 12, border: "1px solid #E5E7EB" }}>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14 }}>
+                      {origMortgage > 0 && (
+                        <div>
+                          <p style={{ fontSize: 11, color: "#6B7280", marginBottom: 3 }}>{financingLabel}</p>
+                          <p style={{ fontSize: 16, fontWeight: 700, color: "#374151" }}>{fmt(origMortgage)}</p>
+                        </div>
+                      )}
+                      {cv > 0 && (
+                        <div>
+                          <p style={{ fontSize: 11, color: "#6B7280", marginBottom: 3 }}>Equity</p>
+                          <p style={{ fontSize: 16, fontWeight: 700, color: equity >= 0 ? "#10B981" : "#EF4444" }}>{fmt(Math.round(equity))}</p>
+                        </div>
+                      )}
+                      {cv > 0 && (
+                        <div>
+                          <p style={{ fontSize: 11, color: "#6B7280", marginBottom: 3 }}>LTV</p>
+                          <p style={{ fontSize: 16, fontWeight: 700, color: ltv > 75 ? "#EF4444" : ltv > 60 ? "#F59E0B" : "#10B981" }}>{ltv.toFixed(1)}%</p>
+                        </div>
+                      )}
+                      {capitalRepaid > 0 && (
+                        <div>
+                          <p style={{ fontSize: 11, color: "#6B7280", marginBottom: 3 }}>Capital Repaid</p>
+                          <p style={{ fontSize: 16, fontWeight: 700, color: "#10B981" }}>{fmt(Math.round(capitalRepaid))}</p>
+                        </div>
+                      )}
+                    </div>
+                    {appreciation !== 0 && (
+                      <p style={{ fontSize: 12, color: appreciation > 0 ? "#065F46" : "#991B1B", marginTop: 10, fontWeight: 500 }}>
+                        {appreciation > 0 ? `Property has appreciated by ${fmt(Math.round(appreciation))} since purchase` : `Property value has decreased by ${fmt(Math.abs(Math.round(appreciation)))} since purchase`}
+                      </p>
+                    )}
+                  </div>
+                );
+              })()}
+            </div>
+
+            {/* Analyse button */}
+            <div style={{ textAlign: "center" }}>
+              <button onClick={handleAnalyze} style={{ ...S.primaryBtn, background: "linear-gradient(135deg, #6366F1, #4F46E5)", display: "inline-flex", padding: "14px 40px", fontSize: 16 }}>
+                <Zap size={20} /> Analyse My Mortgage
+              </button>
+              <p style={{ fontSize: 12, color: "#9CA3AF", marginTop: 8 }}>Purchase details are optional — you can analyse without them.</p>
+            </div>
           </div>
         )}
 
@@ -1032,7 +1135,7 @@ function UploadSection({ uploadedFile, setUploadedFile, dragOver, setDragOver, o
   );
 }
 
-function FormField({ label, value, onChange, placeholder, prefix, suffix, required }) {
+function FormField({ label, value, onChange, placeholder, prefix, suffix, required, type = "text" }) {
   const [focused, setFocused] = useState(false);
   return (
     <div>
@@ -1042,7 +1145,7 @@ function FormField({ label, value, onChange, placeholder, prefix, suffix, requir
       <div style={{ position: "relative" }}>
         {prefix && <span style={{ position: "absolute", left: 14, top: "50%", transform: "translateY(-50%)", color: "#9CA3AF", fontSize: 14 }}>{prefix}</span>}
         <input
-          type="text"
+          type={type}
           value={value}
           onChange={(e) => onChange(e.target.value)}
           placeholder={placeholder}
@@ -1489,6 +1592,59 @@ function ResultsDashboard({ analysis, form, parsedData, adjustment, adjBalance, 
             </div>
           )}
         </div>
+
+        {/* Purchase & Equity */}
+        {(form.purchasePrice || form.currentValue) && (() => {
+          const pp = parseFloat(form.purchasePrice) || 0;
+          const cv = parseFloat(form.currentValue) || 0;
+          const dep = parseFloat(form.depositAmount) || 0;
+          const origFinancing = pp > 0 ? pp - dep : parseFloat(form.originalLoanAmount) || 0;
+          const equity = cv > 0 ? cv - balance : 0;
+          const ltv = cv > 0 ? (balance / cv) * 100 : 0;
+          const capitalRepaid = origFinancing > 0 ? Math.max(0, origFinancing - balance) : 0;
+          const appreciation = cv > 0 && pp > 0 ? cv - pp : 0;
+          const financingWord = isIslamicFinance ? "financing" : "mortgage";
+
+          return (
+            <div style={{ background: "white", border: "1px solid #E5E7EB", borderRadius: 16, padding: 28, marginBottom: 24 }}>
+              <h3 style={{ fontSize: 18, fontWeight: 600, marginBottom: 20 }}>Equity & Property Value</h3>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16 }} className="grid-cols-4">
+                {cv > 0 && (
+                  <div style={{ padding: "16px 18px", background: "#ECFDF5", borderRadius: 12 }}>
+                    <p style={{ fontSize: 11, color: "#065F46", marginBottom: 4 }}>Total Equity</p>
+                    <p style={{ fontSize: 22, fontWeight: 700, color: "#10B981" }}>{fmt(Math.round(equity))}</p>
+                  </div>
+                )}
+                {cv > 0 && (
+                  <div style={{ padding: "16px 18px", background: ltv > 75 ? "#FEE2E2" : ltv > 60 ? "#FEF3C7" : "#ECFDF5", borderRadius: 12 }}>
+                    <p style={{ fontSize: 11, color: "#6B7280", marginBottom: 4 }}>Current LTV</p>
+                    <p style={{ fontSize: 22, fontWeight: 700, color: ltv > 75 ? "#EF4444" : ltv > 60 ? "#F59E0B" : "#10B981" }}>{ltv.toFixed(1)}%</p>
+                    <p style={{ fontSize: 11, color: "#9CA3AF", marginTop: 2 }}>{ltv <= 60 ? "Excellent — best remortgage rates available" : ltv <= 75 ? "Good LTV position" : "Consider building more equity"}</p>
+                  </div>
+                )}
+                {capitalRepaid > 0 && (
+                  <div style={{ padding: "16px 18px", background: "#F0FDF4", borderRadius: 12 }}>
+                    <p style={{ fontSize: 11, color: "#6B7280", marginBottom: 4 }}>Capital Repaid</p>
+                    <p style={{ fontSize: 22, fontWeight: 700, color: "#10B981" }}>{fmt(Math.round(capitalRepaid))}</p>
+                    <p style={{ fontSize: 11, color: "#9CA3AF", marginTop: 2 }}>of {fmt(Math.round(origFinancing))} {financingWord}</p>
+                  </div>
+                )}
+                {appreciation !== 0 && (
+                  <div style={{ padding: "16px 18px", background: appreciation > 0 ? "#EEF2FF" : "#FEE2E2", borderRadius: 12 }}>
+                    <p style={{ fontSize: 11, color: "#6B7280", marginBottom: 4 }}>Property {appreciation > 0 ? "Appreciation" : "Depreciation"}</p>
+                    <p style={{ fontSize: 22, fontWeight: 700, color: appreciation > 0 ? "#6366F1" : "#EF4444" }}>{appreciation > 0 ? "+" : ""}{fmt(Math.round(appreciation))}</p>
+                    <p style={{ fontSize: 11, color: "#9CA3AF", marginTop: 2 }}>{pp > 0 ? `Purchased for ${fmt(pp)}` : ""}</p>
+                  </div>
+                )}
+              </div>
+              {pp > 0 && cv > 0 && (
+                <p style={{ fontSize: 12, color: "#6B7280", marginTop: 14 }}>
+                  Your equity comes from two sources: <strong>{fmt(Math.round(capitalRepaid))}</strong> from capital repayments and <strong>{appreciation > 0 ? fmt(Math.round(appreciation)) : "£0"}</strong> from property appreciation.
+                </p>
+              )}
+            </div>
+          );
+        })()}
 
         {/* Pay Off 10 Years Sooner Hero Banner */}
         <div style={{ background: "linear-gradient(135deg, #6366F1, #4338CA)", borderRadius: 16, padding: 28, marginBottom: 24, color: "white" }}>
