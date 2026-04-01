@@ -14,6 +14,7 @@ const GRID2 = { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 };
 const INITIAL_FORM = {
   address: "", estimated_value: "",
   outstanding_balance: "", interest_rate: "", monthly_payment: "", remaining_years: "", lender: "",
+  rate_type: "", fixed_until: "", reverting_to: "",
   monthly_rent: "", tenant_name: "", tenancy_start: "", tenancy_end: "",
   agent_name: "", management_fee_pct: "",
   deposit_amount: "",
@@ -77,6 +78,9 @@ const DOC_CONFIGS = [
       { key: "interest_rate", label: "Rate", suffix: "%" },
       { key: "monthly_payment", label: "Payment", prefix: "£" },
       { key: "remaining_years", label: "Years remaining" },
+      { key: "rate_type", label: "Rate type" },
+      { key: "fixed_until", label: "Deal ends" },
+      { key: "reverting_to", label: "Reverts to" },
     ],
   },
   {
@@ -486,6 +490,9 @@ export default function AddProperty() {
                       <SummaryField label="Monthly payment (£)" value={form.monthly_payment} onChange={(v) => setField("monthly_payment", v)} type="number" />
                       <SummaryField label="Remaining term (years)" value={form.remaining_years} onChange={(v) => setField("remaining_years", v)} type="number" />
                       <SummaryField label="Lender" value={form.lender} onChange={(v) => setField("lender", v)} placeholder="e.g. Barclays" />
+                      <SummaryField label="Rate type" value={form.rate_type} onChange={(v) => setField("rate_type", v)} placeholder="Fixed / Variable / SVR" />
+                      <SummaryField label="Deal end date" value={form.fixed_until} onChange={(v) => setField("fixed_until", v)} type="date" />
+                      <SummaryField label="Reverts to" value={form.reverting_to} onChange={(v) => setField("reverting_to", v)} placeholder="e.g. SVR + 1%" />
                     </div>
                   </div>
                 )}

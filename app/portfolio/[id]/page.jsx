@@ -426,22 +426,30 @@ export default function PropertyDetail() {
   if (!property) return null;
 
   const p = property;
-  const { net: netCF, agentFee, extras: extrasCost } = calcCashFlow(p);
-  const grossYield = p.estimated_value ? ((p.monthly_rent * 12) / p.estimated_value * 100) : 0;
-  const totalCosts = agentFee + extrasCost + (p.monthly_payment || 0);
-  const netYield = p.estimated_value ? (((p.monthly_rent - totalCosts) * 12) / p.estimated_value * 100) : 0;
-  const annualInterest = (p.outstanding_balance || 0) * (p.interest_rate || 0) / 100;
-  const icr = annualInterest > 0 ? (p.monthly_rent * 12) / annualInterest : 0;
-  const rentToMortgage = p.monthly_payment > 0 ? (p.monthly_rent / p.monthly_payment).toFixed(2) : null;
 
-  // Amortisation
-  const amort = p.outstanding_balance && p.interest_rate && p.monthly_payment && p.remaining_years
-    ? buildAmortization(p.outstanding_balance, p.interest_rate, p.monthly_payment)
+  // Determine effective rate and payment — use reverted rate if deal has ended
+  const dealEnded = p.fixed_until && new Date(p.fixed_until) <= new Date();
+  const effectiveRate = (dealEnded && lenderRateInfo?.revertedRate) ? lenderRateInfo.revertedRate : (p.interest_rate || 0);
+  const effectivePayment = (dealEnded && lenderRateInfo?.newPayment) ? lenderRateInfo.newPayment : (p.monthly_payment || 0);
+
+  // Use effective values for all calculations
+  const effectiveProperty = { ...p, interest_rate: effectiveRate, monthly_payment: effectivePayment };
+  const { net: netCF, agentFee, extras: extrasCost } = calcCashFlow(effectiveProperty);
+  const grossYield = p.estimated_value ? ((p.monthly_rent * 12) / p.estimated_value * 100) : 0;
+  const totalCosts = agentFee + extrasCost + effectivePayment;
+  const netYield = p.estimated_value ? (((p.monthly_rent - totalCosts) * 12) / p.estimated_value * 100) : 0;
+  const annualInterest = (p.outstanding_balance || 0) * effectiveRate / 100;
+  const icr = annualInterest > 0 ? (p.monthly_rent * 12) / annualInterest : 0;
+  const rentToMortgage = effectivePayment > 0 ? (p.monthly_rent / effectivePayment).toFixed(2) : null;
+
+  // Amortisation — use effective rate
+  const amort = p.outstanding_balance && effectiveRate && effectivePayment && p.remaining_years
+    ? buildAmortization(p.outstanding_balance, effectiveRate, effectivePayment)
     : { schedule: [], totalMonths: 0, totalInterest: 0 };
 
   const overpayScenarios = [100, 200, 300].map((extra) => {
-    const base = buildAmortization(p.outstanding_balance, p.interest_rate, p.monthly_payment);
-    const ov = buildAmortization(p.outstanding_balance, p.interest_rate, p.monthly_payment, extra);
+    const base = buildAmortization(p.outstanding_balance, effectiveRate, effectivePayment);
+    const ov = buildAmortization(p.outstanding_balance, effectiveRate, effectivePayment, extra);
     return { extra, monthsSaved: base.totalMonths - ov.totalMonths, interestSaved: base.totalInterest - ov.totalInterest };
   });
 
@@ -449,19 +457,19 @@ export default function PropertyDetail() {
   const tenancyEnd = p.tenancy_end ? new Date(p.tenancy_end) : null;
   const daysUntilEnd = tenancyEnd ? Math.round((tenancyEnd - new Date()) / (1000 * 60 * 60 * 24)) : null;
 
-  // What-if
-  const newRentCF = calcCashFlow({ ...p, monthly_rent: (p.monthly_rent || 0) + Number(rentExtra) });
-  const newRate = (p.interest_rate || 0) + Number(rateRise);
+  // What-if — use effective rate as base
+  const newRentCF = calcCashFlow({ ...effectiveProperty, monthly_rent: (p.monthly_rent || 0) + Number(rentExtra) });
+  const newRate = effectiveRate + Number(rateRise);
   const newPayment = p.outstanding_balance && p.remaining_years
     ? calcMonthlyPayment(p.outstanding_balance, newRate, p.remaining_years)
-    : p.monthly_payment;
-  const newRateCF = calcCashFlow({ ...p, monthly_payment: newPayment });
+    : effectivePayment;
+  const newRateCF = calcCashFlow({ ...effectiveProperty, monthly_payment: newPayment });
   const voidLoss = (p.monthly_rent || 0) * Number(voidMonths);
 
   // Monthly profit overpayment insight
   const profitHalf = Math.round(netCF / 2);
-  const halfOverpay = profitHalf > 0 ? buildAmortization(p.outstanding_balance, p.interest_rate, p.monthly_payment, profitHalf) : null;
-  const baseAmort = p.outstanding_balance ? buildAmortization(p.outstanding_balance, p.interest_rate, p.monthly_payment) : null;
+  const halfOverpay = profitHalf > 0 ? buildAmortization(p.outstanding_balance, effectiveRate, effectivePayment, profitHalf) : null;
+  const baseAmort = p.outstanding_balance ? buildAmortization(p.outstanding_balance, effectiveRate, effectivePayment) : null;
   const yearsSaved = halfOverpay && baseAmort ? Math.round((baseAmort.totalMonths - halfOverpay.totalMonths) / 12) : 0;
 
   return (

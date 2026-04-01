@@ -15,6 +15,7 @@ const PROMPTS = {
   mortgage: `You are an expert UK mortgage document parser. Extract key mortgage details from this statement.
 This may be a traditional UK mortgage OR an Islamic finance Home Purchase Plan (HPP) from Gatehouse Bank, Al Rayan Bank, etc.
 Islamic terminology: "Rental Rate" = interest rate, "Acquisition payment" = capital portion, total of acquisition + rental = monthly payment.
+"End Date" of current product = fixed_until (deal end date). "Reverting to" = what rate reverts to after fix ends.
 
 Return ONLY valid JSON (no markdown, no explanation):
 {
@@ -23,7 +24,10 @@ Return ONLY valid JSON (no markdown, no explanation):
   "interest_rate": number or null,
   "remaining_years": number or null,
   "lender": string or null,
-  "address": string or null
+  "address": string or null,
+  "rate_type": string or null,
+  "fixed_until": string or null,
+  "reverting_to": string or null
 }
 
 Rules:
@@ -33,6 +37,9 @@ Rules:
 - remaining_years: remaining term in years, round to 1 decimal place
 - lender: full bank/lender name as shown on the document
 - address: property address if shown on the document
+- rate_type: one of "Fixed", "Variable", "SVR", "Tracker", "Discount" — the current product type
+- fixed_until: the end date of the current rate deal in ISO format YYYY-MM-DD. Look for "End Date", "Product End Date", "Fixed until", "Deal expires". Return null if not found.
+- reverting_to: what the rate reverts to after the fixed period ends. Return the EXACT text, e.g. "SVR + 1%", "Standard Variable Rate", "BBR + 3.5%". Return null if not found.
 - Never guess or invent values — use null if not found.`,
 
   tenancy: `You are an expert UK tenancy agreement parser. Extract tenancy details from this Assured Shorthold Tenancy (AST) or similar rental agreement.
@@ -80,7 +87,7 @@ Rules:
 };
 
 const FIELD_MAPS = {
-  mortgage: ["outstanding_balance", "monthly_payment", "interest_rate", "remaining_years", "lender", "address"],
+  mortgage: ["outstanding_balance", "monthly_payment", "interest_rate", "remaining_years", "lender", "address", "rate_type", "fixed_until", "reverting_to"],
   tenancy: ["monthly_rent", "tenant_name", "tenancy_start", "tenancy_end", "deposit_amount", "address", "break_clause_date", "break_clause_notice_months", "deposit_scheme", "pet_clause", "notice_period_months", "permitted_occupants"],
   agent: ["agent_name", "management_fee_pct", "tenant_find_fee", "contract_start", "notice_period_months"],
 };
