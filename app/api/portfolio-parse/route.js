@@ -68,18 +68,21 @@ Rules:
 - permitted_occupants: maximum number of permitted occupants if stated, or null
 - Never guess or invent values — use null if not found.`,
 
-  agent: `Extract the estate agent name and their management fee percentage from this document. Return ONLY valid JSON:
-{"agent_name": string or null, "management_fee_pct": number or null}
+  agent: `Extract details from this estate agent / letting agent agreement or payment advice. Return ONLY valid JSON:
+{"agent_name": string or null, "management_fee_pct": number or null, "tenant_find_fee": number or null, "contract_start": "YYYY-MM-DD" or null, "notice_period_months": number or null}
 Rules:
-- agent_name: full name of the letting/management agency
-- management_fee_pct: fee as a number (10% → 10, 8.25% → 8.25). If only amounts shown, calculate: (commission exc. VAT / gross rent) × 100. If VAT-inclusive, divide by 1.2 first.
+- agent_name: full name of the letting/management agency (usually in the letterhead, header, or "from" line)
+- management_fee_pct: fee as a number (10% → 10, 8.25% → 8.25). Look for "management fee", "commission", "% of rent", "monthly fee", "our fee", "agent fee". If only amounts shown (e.g. on a payment advice), calculate: (commission exc. VAT / gross rent) × 100. If VAT-inclusive amount, divide by 1.2 first to get exc. VAT, then calculate percentage.
+- tenant_find_fee: one-off tenant find/introduction fee in £ (number only), or null
+- contract_start: start date of the agency agreement in ISO YYYY-MM-DD, or null
+- notice_period_months: notice period to terminate the agency agreement in months, or null
 - Never guess — use null if not found.`,
 };
 
 const FIELD_MAPS = {
   mortgage: ["outstanding_balance", "monthly_payment", "interest_rate", "remaining_years", "lender", "address"],
   tenancy: ["monthly_rent", "tenant_name", "tenancy_start", "tenancy_end", "deposit_amount", "address", "break_clause_date", "break_clause_notice_months", "deposit_scheme", "pet_clause", "notice_period_months", "permitted_occupants"],
-  agent: ["agent_name", "management_fee_pct"],
+  agent: ["agent_name", "management_fee_pct", "tenant_find_fee", "contract_start", "notice_period_months"],
 };
 
 // ─── Fast regex extraction for agent documents ──────────────────────────────
@@ -204,15 +207,13 @@ export async function POST(request) {
         { type: "text", text: `${PROMPTS[docType]}\n\n--- DOCUMENT START ---\n${truncated}\n--- DOCUMENT END ---` },
       ];
     } else if (isPdf) {
-      // Only fall back to base64 for non-agent docs (agent docs are too slow this way)
-      if (docType === "agent") {
-        return NextResponse.json({ error: "Could not read this document. Please enter the agent name and fee manually." }, { status: 400 });
-      }
+      // Scanned/image-based PDF — send as base64 document for all doc types (including agent)
       messageContent = [
         { type: "document", source: { type: "base64", media_type: "application/pdf", data: buffer.toString("base64") } },
         { type: "text", text: PROMPTS[docType] },
       ];
     } else {
+      // Image file (JPG, PNG) — works for photos of documents
       const mediaType = file.type.startsWith("image/") ? file.type : "image/jpeg";
       messageContent = [
         { type: "image", source: { type: "base64", media_type: mediaType, data: buffer.toString("base64") } },
@@ -225,11 +226,13 @@ export async function POST(request) {
 
     let response;
     try {
-      const timeoutMs = docType === "agent" ? 10000 : 30000;
+      // Scanned PDFs (sent as base64 document) take longer — allow 30s for all types
+      const isScannedPdf = isPdf && (!documentText || documentText.length <= 100);
+      const timeoutMs = (docType === "agent" && !isScannedPdf) ? 10000 : 30000;
       response = await Promise.race([
         client.messages.create({
           model: "claude-sonnet-4-6",
-          max_tokens: docType === "agent" ? 128 : 512,
+          max_tokens: docType === "agent" ? 256 : 512,
           messages: [{ role: "user", content: messageContent }],
         }),
         new Promise((_, reject) =>
@@ -246,7 +249,7 @@ export async function POST(request) {
       const msg =
         err?.status === 401 ? "Invalid API key." :
         err?.status === 429 || err?.status === 529 ? "Service busy — please try again in a moment." :
-        "Could not extract details automatically — please enter manually.";
+        "We couldn't automatically read this document — it may be a scanned copy. Please enter the details below instead.";
       return NextResponse.json({ error: msg }, { status: 502 });
     }
 
@@ -256,7 +259,7 @@ export async function POST(request) {
       const match = responseText.match(/\{[\s\S]*\}/);
       extracted = JSON.parse(match ? match[0] : responseText);
     } catch {
-      return NextResponse.json({ error: "Could not read document. Please enter details manually." }, { status: 400 });
+      return NextResponse.json({ error: "We couldn't automatically read this document — it may be a scanned copy. Please enter the details below instead." }, { status: 400 });
     }
 
     // Return only the fields for this doc type, dropping nulls
