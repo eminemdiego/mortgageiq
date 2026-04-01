@@ -96,6 +96,9 @@ export default function PropertyDetail() {
   const [certSaving, setCertSaving] = useState(false);
   const [certFileUrl, setCertFileUrl] = useState("");
 
+  // Rate reversion state
+  const [lenderRateInfo, setLenderRateInfo] = useState(null); // { svrRate, revertedRate, newPayment, matched }
+
   // Expenses state
   const [expenses, setExpenses] = useState([]);
   const [expensesOpen, setExpensesOpen] = useState(false);
@@ -133,6 +136,35 @@ export default function PropertyDetail() {
       setLoading(false);
     }
   };
+
+  // Fetch lender SVR when property has a deal that's ended
+  useEffect(() => {
+    if (!property?.lender || !property?.fixed_until) return;
+    const end = new Date(property.fixed_until);
+    if (isNaN(end.getTime())) return;
+    const now = new Date();
+    if (end > now) return; // deal hasn't ended yet
+
+    const revertingTo = property.reverting_to || "SVR";
+    fetch(`/api/lender-rates?lender=${encodeURIComponent(property.lender)}&revertingTo=${encodeURIComponent(revertingTo)}`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.matched) {
+          const revertedRate = data.revertedRate?.rate || data.svr_rate;
+          // Calculate new payment at reverted rate
+          let newPmt = null;
+          if (revertedRate && property.outstanding_balance && property.remaining_years) {
+            const r = revertedRate / 100 / 12;
+            const n = property.remaining_years * 12;
+            if (r > 0 && n > 0) {
+              newPmt = Math.round((property.outstanding_balance * r * Math.pow(1 + r, n)) / (Math.pow(1 + r, n) - 1));
+            }
+          }
+          setLenderRateInfo({ svrRate: data.svr_rate, revertedRate, revertedFormula: revertingTo, newPayment: newPmt, matched: true, lastFetched: data.last_fetched });
+        }
+      })
+      .catch(() => {});
+  }, [property]);
 
   const fetchExpenses = async () => {
     try {
@@ -457,7 +489,13 @@ export default function PropertyDetail() {
           <h1 style={{ fontSize: 24, fontWeight: 700, marginBottom: 8 }}>{p.address}</h1>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             {p.lender && <span style={{ padding: "4px 12px", background: "#FEF3C7", color: "#92400E", borderRadius: 6, fontSize: 13 }}>{p.lender}</span>}
-            {p.interest_rate && <span style={{ padding: "4px 12px", background: "#EEF2FF", color: "#6366F1", borderRadius: 6, fontSize: 13 }}>{p.interest_rate}% rate</span>}
+            {p.interest_rate && (() => {
+              const dealEnded = p.fixed_until && new Date(p.fixed_until) <= new Date();
+              const showReverted = dealEnded && lenderRateInfo?.revertedRate;
+              return showReverted
+                ? <span style={{ padding: "4px 12px", background: "#FEE2E2", color: "#DC2626", borderRadius: 6, fontSize: 13 }}>{lenderRateInfo.revertedRate.toFixed(2)}% (was {p.interest_rate}% fixed)</span>
+                : <span style={{ padding: "4px 12px", background: "#EEF2FF", color: "#6366F1", borderRadius: 6, fontSize: 13 }}>{p.interest_rate}% rate</span>;
+            })()}
           </div>
         </div>
 
@@ -558,13 +596,27 @@ export default function PropertyDetail() {
           <div style={CARD}>
             <h2 style={{ fontSize: 17, fontWeight: 700, marginBottom: 20 }}>Mortgage Deal</h2>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16, marginBottom: p.fixed_until ? 16 : 0 }}>
-              {p.interest_rate && (
-                <div>
-                  <p style={{ fontSize: 11, color: "#6B7280", marginBottom: 3 }}>Current Rate</p>
-                  <p style={{ fontSize: 20, fontWeight: 700, color: "#111" }}>{p.interest_rate}%</p>
-                  {p.rate_type && <p style={{ fontSize: 12, color: "#6366F1", marginTop: 2 }}>{p.rate_type}</p>}
-                </div>
-              )}
+              {p.interest_rate && (() => {
+                const dealEnded = p.fixed_until && new Date(p.fixed_until) <= new Date();
+                const showRevertedRate = dealEnded && lenderRateInfo?.revertedRate;
+                return (
+                  <div>
+                    <p style={{ fontSize: 11, color: "#6B7280", marginBottom: 3 }}>Current Rate</p>
+                    {showRevertedRate ? (
+                      <>
+                        <p style={{ fontSize: 20, fontWeight: 700, color: "#DC2626" }}>{lenderRateInfo.revertedRate.toFixed(2)}%</p>
+                        <p style={{ fontSize: 12, color: "#DC2626", marginTop: 2 }}>{lenderRateInfo.revertedFormula || "SVR"} (variable)</p>
+                        <p style={{ fontSize: 11, color: "#9CA3AF", marginTop: 2 }}>Was {p.interest_rate}% fixed</p>
+                      </>
+                    ) : (
+                      <>
+                        <p style={{ fontSize: 20, fontWeight: 700, color: "#111" }}>{p.interest_rate}%</p>
+                        {p.rate_type && <p style={{ fontSize: 12, color: "#6366F1", marginTop: 2 }}>{p.rate_type}</p>}
+                      </>
+                    )}
+                  </div>
+                );
+              })()}
               {p.outstanding_balance && p.estimated_value && (
                 <div>
                   <p style={{ fontSize: 11, color: "#6B7280", marginBottom: 3 }}>LTV</p>
@@ -585,16 +637,41 @@ export default function PropertyDetail() {
             </div>
             {p.fixed_until && (() => {
               const end = new Date(p.fixed_until);
+              if (isNaN(end.getTime())) return null;
               const now = new Date();
               const months = Math.round((end - now) / (1000 * 60 * 60 * 24 * 30.44));
-              const color = months <= 0 ? "#EF4444" : months <= 3 ? "#EF4444" : months <= 6 ? "#F59E0B" : "#10B981";
-              const bg = months <= 0 ? "#FEE2E2" : months <= 3 ? "#FEE2E2" : months <= 6 ? "#FEF3C7" : "#ECFDF5";
+              const color = months <= 0 ? "#DC2626" : months <= 3 ? "#EF4444" : months <= 6 ? "#F59E0B" : "#10B981";
+              const bg = months <= 0 ? "#FEF2F2" : months <= 3 ? "#FEE2E2" : months <= 6 ? "#FEF3C7" : "#ECFDF5";
+
+              if (months <= 0) {
+                // Deal has ended
+                const paymentIncrease = lenderRateInfo?.newPayment && p.monthly_payment ? lenderRateInfo.newPayment - p.monthly_payment : null;
+                return (
+                  <div style={{ padding: "16px 20px", background: "#FEF2F2", borderRadius: 12, border: "1px solid #FECACA" }}>
+                    <p style={{ fontWeight: 700, color: "#DC2626", marginBottom: 6, fontSize: 14 }}>
+                      Your fixed rate ended on {end.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })}
+                    </p>
+                    <p style={{ color: "#991B1B", fontSize: 13, marginBottom: lenderRateInfo ? 8 : 0 }}>
+                      You are now on your lender's variable rate{lenderRateInfo?.revertedFormula ? ` (${lenderRateInfo.revertedFormula})` : ""}.
+                      {lenderRateInfo?.revertedRate ? ` Current rate: ${lenderRateInfo.revertedRate.toFixed(2)}%.` : ""}
+                      {" "}Your monthly payment has likely increased.
+                    </p>
+                    {paymentIncrease !== null && paymentIncrease > 0 && (
+                      <div style={{ display: "flex", gap: 16, marginTop: 8 }}>
+                        <span style={{ fontSize: 13, color: "#6B7280" }}>Was: {fmt(p.monthly_payment)}/mo</span>
+                        <span style={{ fontSize: 13, fontWeight: 700, color: "#DC2626" }}>Now: ~{fmt(lenderRateInfo.newPayment)}/mo (+{fmt(Math.round(paymentIncrease))})</span>
+                      </div>
+                    )}
+                  </div>
+                );
+              }
+
               return (
                 <div style={{ padding: "12px 16px", background: bg, borderRadius: 10, fontSize: 13 }}>
                   <p style={{ fontWeight: 600, color, marginBottom: 2 }}>
-                    {months <= 0 ? "Deal has expired — now on SVR" : `Deal ends ${end.toLocaleDateString("en-GB", { month: "long", year: "numeric" })}`}
+                    Deal ends {end.toLocaleDateString("en-GB", { month: "long", year: "numeric" })}
                   </p>
-                  {months > 0 && <p style={{ color: "#6B7280" }}>{months} months remaining. {months <= 6 ? "Consider remortgaging now — most lenders allow applications 6 months early." : ""}</p>}
+                  <p style={{ color: "#6B7280" }}>{months} months remaining. {months <= 6 ? "Consider remortgaging now — most lenders allow applications 6 months early." : ""}</p>
                 </div>
               );
             })()}

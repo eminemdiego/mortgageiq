@@ -164,10 +164,28 @@ function monthsElapsedBetween(from, to) {
     (to.getMonth() - from.getMonth());
 }
 
-// Try to parse a free-text month-year string like "March 2027" or "August 2025"
+// Try to parse a free-text date string — handles:
+// "March 2027", "February 2026", "22/02/2026", "2026-02-22", "Feb 2026"
 function parseMonthYear(str) {
   if (!str) return null;
-  const d = new Date(str.trim() + " 1");
+  const s = str.trim();
+
+  // ISO format: 2026-02-22
+  const isoMatch = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (isoMatch) {
+    const d = new Date(s);
+    return isNaN(d.getTime()) ? null : d;
+  }
+
+  // UK date format: 22/02/2026 or 22-02-2026
+  const ukMatch = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+  if (ukMatch) {
+    const d = new Date(`${ukMatch[3]}-${ukMatch[2].padStart(2, "0")}-${ukMatch[1].padStart(2, "0")}`);
+    return isNaN(d.getTime()) ? null : d;
+  }
+
+  // Month-year: "February 2026", "Feb 2026"
+  const d = new Date(s + " 1");
   return isNaN(d.getTime()) ? null : d;
 }
 
