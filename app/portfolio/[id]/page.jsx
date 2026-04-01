@@ -149,6 +149,7 @@ export default function PropertyDetail() {
     fetch(`/api/lender-rates?lender=${encodeURIComponent(property.lender)}&revertingTo=${encodeURIComponent(revertingTo)}`)
       .then((r) => r.json())
       .then((data) => {
+        console.log("[portfolio] Lender rate response:", JSON.stringify(data));
         if (data.matched) {
           const revertedRate = data.revertedRate?.rate || data.svr_rate;
           // Calculate new payment at reverted rate

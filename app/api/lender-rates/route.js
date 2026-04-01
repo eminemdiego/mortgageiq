@@ -91,15 +91,15 @@ function parseReversionRate(revertingTo, svrRate, bbrRate) {
   if (!revertingTo || !svrRate) return null;
   const rt = revertingTo.toLowerCase().trim();
 
-  // "SVR + X%" or "SVR - X%"
-  const svrMatch = rt.match(/svr\s*([+-])\s*([\d.]+)\s*%?/);
-  if (svrMatch) {
-    const sign = svrMatch[1] === "+" ? 1 : -1;
-    const margin = parseFloat(svrMatch[2]);
+  // "SVR + X%", "Standard Variable Rate + 1%", "Lender Variable Rate + 1%", etc.
+  const svrMarginMatch = rt.match(/(?:svr|standard\s*variable\s*rate|lender\s*variable\s*rate|variable\s*rate)\s*([+-])\s*([\d.]+)\s*%?/);
+  if (svrMarginMatch) {
+    const sign = svrMarginMatch[1] === "+" ? 1 : -1;
+    const margin = parseFloat(svrMarginMatch[2]);
     return { rate: Math.round((svrRate + sign * margin) * 100) / 100, formula: revertingTo, base: "SVR", margin: sign * margin };
   }
 
-  // Plain "SVR" or "Standard Variable Rate" or "Lender Variable Rate"
+  // Plain "SVR" or "Standard Variable Rate" or "Lender Variable Rate" (no margin)
   if (rt.includes("svr") || rt.includes("standard variable") || rt.includes("lender variable") || rt.includes("variable rate")) {
     return { rate: svrRate, formula: revertingTo, base: "SVR", margin: 0 };
   }
@@ -182,6 +182,8 @@ export async function GET(request) {
     }
 
     const revertedRate = revertingTo ? parseReversionRate(revertingTo, data.svr_rate, data.bbr_rate) : null;
+
+    console.log("[lender-rates] Lookup:", { rawLender, matchedName, svr_rate: data.svr_rate, revertingTo, revertedRate });
 
     return Response.json({
       matched: true,
