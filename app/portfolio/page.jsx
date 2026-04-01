@@ -26,18 +26,30 @@ function parseReversionRate(revertingTo, svrRate) {
 function getEffective(p, lenderRatesMap) {
   const rate = p.interest_rate || 0;
   const payment = p.monthly_payment || 0;
-  if (!p.fixed_until) return { rate, payment, dealEnded: false };
-  const end = new Date(p.fixed_until);
+
+  // Check deal end date — try fixed_until first, then deal_end_date
+  const dealEndStr = p.fixed_until || p.deal_end_date;
+  if (!dealEndStr) return { rate, payment, dealEnded: false };
+  const end = new Date(dealEndStr);
   if (isNaN(end.getTime()) || end > new Date()) return { rate, payment, dealEnded: false };
+
   // Deal has ended — look up SVR
-  const lender = lenderRatesMap[p.lender?.toLowerCase()];
+  const lenderKey = (p.lender || "").toLowerCase();
+  const lender = lenderRatesMap[lenderKey];
   if (!lender) return { rate, payment, dealEnded: true, noSvr: true };
-  const revertedRate = parseReversionRate(p.reverting_to, lender.svr_rate);
-  if (!revertedRate || !p.outstanding_balance || !p.remaining_years) return { rate: revertedRate || rate, payment, dealEnded: true };
+
+  const revertingTo = p.reverting_to || p.reversion_rate || "";
+  const revertedRate = parseReversionRate(revertingTo, lender.svr_rate);
+  if (!revertedRate || !p.outstanding_balance || !p.remaining_years) {
+    return { rate: revertedRate || rate, payment, dealEnded: true, svrRate: lender.svr_rate };
+  }
+
   // Recalculate payment at reverted rate
   const r = revertedRate / 100 / 12;
   const n = p.remaining_years * 12;
-  const newPayment = r > 0 && n > 0 ? Math.round((p.outstanding_balance * r * Math.pow(1 + r, n)) / (Math.pow(1 + r, n) - 1)) : payment;
+  const newPayment = r > 0 && n > 0
+    ? Math.round((p.outstanding_balance * r * Math.pow(1 + r, n)) / (Math.pow(1 + r, n) - 1))
+    : payment;
   return { rate: revertedRate, payment: newPayment, dealEnded: true, svrRate: lender.svr_rate };
 }
 
