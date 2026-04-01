@@ -22,6 +22,19 @@ function parseReversionRate(revertingTo, svrRate) {
   return svrRate;
 }
 
+// Fuzzy match a property's lender name to the rates map
+function findLenderRate(lenderName, lenderRatesMap) {
+  if (!lenderName) return null;
+  const key = lenderName.toLowerCase().trim();
+  // Exact match
+  if (lenderRatesMap[key]) return lenderRatesMap[key];
+  // Partial match — check if any map key is contained in the property lender or vice versa
+  for (const [mapKey, val] of Object.entries(lenderRatesMap)) {
+    if (key.includes(mapKey) || mapKey.includes(key)) return val;
+  }
+  return null;
+}
+
 // Get effective rate and payment for a property, accounting for deal end
 function getEffective(p, lenderRatesMap) {
   const rate = p.interest_rate || 0;
@@ -29,17 +42,30 @@ function getEffective(p, lenderRatesMap) {
 
   // Check deal end date — try fixed_until first, then deal_end_date
   const dealEndStr = p.fixed_until || p.deal_end_date;
-  if (!dealEndStr) return { rate, payment, dealEnded: false };
+  if (!dealEndStr) {
+    console.log(`[getEffective] ${p.address}: no fixed_until or deal_end_date — skipping reversion`);
+    return { rate, payment, dealEnded: false };
+  }
   const end = new Date(dealEndStr);
-  if (isNaN(end.getTime()) || end > new Date()) return { rate, payment, dealEnded: false };
+  if (isNaN(end.getTime())) {
+    console.log(`[getEffective] ${p.address}: invalid date "${dealEndStr}"`);
+    return { rate, payment, dealEnded: false };
+  }
+  if (end > new Date()) {
+    return { rate, payment, dealEnded: false };
+  }
 
-  // Deal has ended — look up SVR
-  const lenderKey = (p.lender || "").toLowerCase();
-  const lender = lenderRatesMap[lenderKey];
-  if (!lender) return { rate, payment, dealEnded: true, noSvr: true };
+  // Deal has ended — look up SVR with fuzzy matching
+  const lender = findLenderRate(p.lender, lenderRatesMap);
+  if (!lender) {
+    console.log(`[getEffective] ${p.address}: deal ended but lender "${p.lender}" not found in rates map (${Object.keys(lenderRatesMap).length} lenders loaded)`);
+    return { rate, payment, dealEnded: true, noSvr: true };
+  }
 
   const revertingTo = p.reverting_to || p.reversion_rate || "";
   const revertedRate = parseReversionRate(revertingTo, lender.svr_rate);
+  console.log(`[getEffective] ${p.address}: deal ended, lender=${lender.lender_name}, SVR=${lender.svr_rate}, revertingTo="${revertingTo}", revertedRate=${revertedRate}`);
+
   if (!revertedRate || !p.outstanding_balance || !p.remaining_years) {
     return { rate: revertedRate || rate, payment, dealEnded: true, svrRate: lender.svr_rate };
   }
@@ -50,6 +76,7 @@ function getEffective(p, lenderRatesMap) {
   const newPayment = r > 0 && n > 0
     ? Math.round((p.outstanding_balance * r * Math.pow(1 + r, n)) / (Math.pow(1 + r, n) - 1))
     : payment;
+  console.log(`[getEffective] ${p.address}: newRate=${revertedRate}%, newPayment=${newPayment} (was ${payment})`);
   return { rate: revertedRate, payment: newPayment, dealEnded: true, svrRate: lender.svr_rate };
 }
 
@@ -118,12 +145,14 @@ export default function PortfolioDashboard() {
   const fetchLenderRates = async () => {
     try {
       const res = await fetch("/api/lender-rates?all=true");
-      if (!res.ok) return;
+      if (!res.ok) { console.error("[fetchLenderRates] API returned", res.status); return; }
       const data = await res.json();
+      console.log("[fetchLenderRates] loaded", (data.lenders || []).length, "lenders");
       const map = {};
       (data.lenders || []).forEach((l) => { map[l.lender_name.toLowerCase()] = l; });
+      console.log("[fetchLenderRates] map keys:", Object.keys(map));
       setLenderRatesMap(map);
-    } catch { /* silent */ }
+    } catch (err) { console.error("[fetchLenderRates] error:", err); }
   };
 
   const fetchProperties = async () => {
@@ -131,6 +160,10 @@ export default function PortfolioDashboard() {
       const res = await fetch("/api/portfolio");
       if (!res.ok) throw new Error();
       const props = await res.json();
+      // Log property fields relevant to rate reversion
+      props.forEach((p) => {
+        console.log(`[property] ${p.address}: lender=${p.lender}, fixed_until=${p.fixed_until}, reverting_to=${p.reverting_to}, rate=${p.interest_rate}, payment=${p.monthly_payment}`);
+      });
       setProperties(props);
       // Fetch certificates for all properties in parallel
       const certResults = await Promise.all(
