@@ -98,6 +98,61 @@ function rollForward(balance, annualRate, monthlyPayment, months) {
   };
 }
 
+// Split-rate roll-forward: handles rate change mid-period (e.g. fixed rate ended, now on SVR)
+function rollForwardSplitRate(balance, fixedRate, revertedRate, monthlyPayment, totalMonths, fixedMonths) {
+  let bal = balance;
+  let totalInterest = 0;
+  let totalPrincipal = 0;
+  let fixedInterest = 0;
+  let revertedInterest = 0;
+
+  for (let i = 0; i < totalMonths; i++) {
+    if (bal <= 0.01) break;
+    const rate = i < fixedMonths ? fixedRate : revertedRate;
+    const r = rate / 100 / 12;
+    const interest = bal * r;
+
+    // After rate change, monthly payment may be recalculated by lender
+    let pmt = monthlyPayment;
+    if (i === fixedMonths && revertedRate !== fixedRate) {
+      // Recalculate payment at new rate for remaining term
+      const remainingMonths = totalMonths - i;
+      const rNew = revertedRate / 100 / 12;
+      if (rNew > 0 && remainingMonths > 0) {
+        pmt = (bal * rNew * Math.pow(1 + rNew, remainingMonths)) / (Math.pow(1 + rNew, remainingMonths) - 1);
+      }
+    }
+    if (i >= fixedMonths) {
+      // Use recalculated payment for reverted period
+      const remainingMonths = totalMonths - fixedMonths;
+      const rNew = revertedRate / 100 / 12;
+      if (rNew > 0 && remainingMonths > 0) {
+        pmt = (bal * rNew * Math.pow(1 + rNew, remainingMonths)) / (Math.pow(1 + rNew, remainingMonths) - 1);
+        // Only recalculate once at reversion point — use fixed payment after
+        if (i === fixedMonths) {
+          // store for subsequent months
+        }
+      }
+    }
+
+    const principal = pmt - interest;
+    if (principal <= 0) break;
+    bal = Math.max(0, bal - principal);
+    totalInterest += interest;
+    totalPrincipal += principal;
+    if (i < fixedMonths) fixedInterest += interest;
+    else revertedInterest += interest;
+  }
+
+  return {
+    balance: Math.round(bal),
+    totalInterest: Math.round(totalInterest),
+    totalPrincipal: Math.round(totalPrincipal),
+    fixedInterest: Math.round(fixedInterest),
+    revertedInterest: Math.round(revertedInterest),
+  };
+}
+
 function parseStatementDate(dateStr) {
   if (!dateStr) return null;
   const d = new Date(dateStr);
@@ -182,6 +237,12 @@ export default function MortgageAnalyzer() {
   // User-editable overrides for rolled-forward figures
   const [adjBalance, setAdjBalance] = useState("");
   const [adjYears, setAdjYears] = useState("");
+  // Rate change tracking
+  const [rateChangeInfo, setRateChangeInfo] = useState(null);
+  // { dealEnded: bool, dealEndDate: Date, dealEndsMonths: number,
+  //   oldRate: number, newRate: number, revertedFormula: string,
+  //   oldPayment: number, newPayment: number, lenderSvr: number,
+  //   lenderName: string, lenderMatched: bool, lastFetched: string }
 
   const updateForm = (key, value) =>
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -352,50 +413,168 @@ export default function MortgageAnalyzer() {
 
   // Compute roll-forward adjustment whenever parsedData arrives with a statement date
   useEffect(() => {
-    if (!parsedData?.statementDate) { setAdjustment(null); return; }
+    if (!parsedData?.statementDate) { setAdjustment(null); setRateChangeInfo(null); return; }
     const stmtDate = parseStatementDate(parsedData.statementDate);
-    if (!stmtDate) { setAdjustment(null); return; }
+    if (!stmtDate) { setAdjustment(null); setRateChangeInfo(null); return; }
 
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const months = monthsElapsedBetween(stmtDate, today);
 
     // No adjustment needed this month or future-dated statement
-    if (months <= 0) { setAdjustment(null); return; }
+    if (months <= 0) { setAdjustment(null); setRateChangeInfo(null); return; }
 
     const balance  = parseFloat(form.outstandingBalance);
     const payment  = parseFloat(form.monthlyPayment);
     const rate     = parseFloat(form.interestRate);
     const years    = parseFloat(form.remainingYears);
-    if (!balance || !payment || !rate || !years) { setAdjustment(null); return; }
-
-    const rolled = rollForward(balance, rate, payment, months);
-    const adjY   = Math.max(0, Math.round((years * 12 - months) / 12 * 10) / 10);
+    if (!balance || !payment || !rate || !years) { setAdjustment(null); setRateChangeInfo(null); return; }
 
     // Check if fixed rate period has lapsed between statement date and today
-    const fixedEndDate = parseMonthYear(form.fixedUntil);
-    const fixedRateLapsed =
-      fixedEndDate &&
-      fixedEndDate > stmtDate &&
-      fixedEndDate <= today;
+    // Try ISO date first, then human-readable month-year
+    const fixedEndDate = parseStatementDate(parsedData.dealEndDateISO) || parseMonthYear(form.fixedUntil);
+    const fixedRateLapsed = fixedEndDate && fixedEndDate > stmtDate && fixedEndDate <= today;
+    const fixedEndingSoon = fixedEndDate && fixedEndDate > today && monthsElapsedBetween(today, fixedEndDate) <= 6;
 
-    const adj = {
-      statementDate: stmtDate,
-      today,
-      months,
-      originalBalance: balance,
-      originalYears:   years,
-      adjustedBalance: rolled.balance,
-      adjustedYears:   adjY,
-      interestInGap:   rolled.totalInterest,
-      principalInGap:  rolled.totalPrincipal,
-      tooOld:          months > 24,
-      fixedRateLapsed,
-      fixedEndDate,
-    };
-    setAdjustment(adj);
-    setAdjBalance(String(rolled.balance));
-    setAdjYears(String(adjY));
+    // If rate has changed (or will change soon), fetch the lender's SVR
+    const revertingTo = parsedData.revertingTo || parsedData.revertingToDetail || "";
+    const lenderName = parsedData.bank || form.bank || "";
+
+    if ((fixedRateLapsed || fixedEndingSoon) && revertingTo && lenderName) {
+      // Fetch lender SVR and compute reverted rate
+      fetch(`/api/lender-rates?lender=${encodeURIComponent(lenderName)}&revertingTo=${encodeURIComponent(revertingTo)}`)
+        .then((r) => r.json())
+        .then((lenderData) => {
+          let newRate = null;
+          let newPayment = null;
+          let lenderSvr = null;
+
+          if (lenderData.matched && lenderData.revertedRate) {
+            newRate = lenderData.revertedRate.rate;
+            lenderSvr = lenderData.svr_rate;
+          } else if (lenderData.matched) {
+            // No reversion parsing — just use SVR as-is
+            newRate = lenderData.svr_rate;
+            lenderSvr = lenderData.svr_rate;
+          }
+
+          if (newRate) {
+            // Calculate new monthly payment at reverted rate
+            const remainingTermMonths = years * 12 - months;
+            const rNew = newRate / 100 / 12;
+            if (rNew > 0 && remainingTermMonths > 0) {
+              // If deal has ended, calculate from the post-reversion balance
+              const monthsOnFixed = fixedRateLapsed ? Math.max(0, monthsElapsedBetween(stmtDate, fixedEndDate)) : months;
+              const monthsOnReverted = fixedRateLapsed ? months - monthsOnFixed : 0;
+
+              // Roll forward in two phases
+              const phase1 = rollForward(balance, rate, payment, monthsOnFixed);
+              let rolledBalance;
+              if (monthsOnReverted > 0) {
+                const remainAfterFixed = remainingTermMonths + monthsOnReverted;
+                const revertedPayment = (phase1.balance * rNew * Math.pow(1 + rNew, remainAfterFixed)) / (Math.pow(1 + rNew, remainAfterFixed) - 1);
+                const phase2 = rollForward(phase1.balance, newRate, revertedPayment, monthsOnReverted);
+                rolledBalance = phase2.balance;
+                newPayment = Math.round(revertedPayment);
+
+                const adj = {
+                  statementDate: stmtDate, today, months,
+                  originalBalance: balance, originalYears: years,
+                  adjustedBalance: rolledBalance,
+                  adjustedYears: Math.max(0, Math.round((years * 12 - months) / 12 * 10) / 10),
+                  interestInGap: phase1.totalInterest + phase2.totalInterest,
+                  principalInGap: phase1.totalPrincipal + phase2.totalPrincipal,
+                  tooOld: months > 24,
+                  fixedRateLapsed, fixedEndDate,
+                  splitRate: true,
+                  fixedMonths: monthsOnFixed,
+                  revertedMonths: monthsOnReverted,
+                  fixedInterest: phase1.totalInterest,
+                  revertedInterest: phase2.totalInterest,
+                };
+                setAdjustment(adj);
+                setAdjBalance(String(rolledBalance));
+                setAdjYears(String(adj.adjustedYears));
+              } else {
+                // Deal hasn't ended yet — simple roll-forward
+                rolledBalance = phase1.balance;
+                const remainAfterDeal = (years * 12 - months);
+                newPayment = Math.round((rolledBalance * rNew * Math.pow(1 + rNew, remainAfterDeal)) / (Math.pow(1 + rNew, remainAfterDeal) - 1));
+
+                const adjY = Math.max(0, Math.round((years * 12 - months) / 12 * 10) / 10);
+                setAdjustment({
+                  statementDate: stmtDate, today, months,
+                  originalBalance: balance, originalYears: years,
+                  adjustedBalance: phase1.balance, adjustedYears: adjY,
+                  interestInGap: phase1.totalInterest, principalInGap: phase1.totalPrincipal,
+                  tooOld: months > 24, fixedRateLapsed, fixedEndDate,
+                });
+                setAdjBalance(String(phase1.balance));
+                setAdjYears(String(adjY));
+              }
+            }
+          } else {
+            // No lender match or no rate data — fall back to single-rate roll-forward
+            const rolled = rollForward(balance, rate, payment, months);
+            const adjY = Math.max(0, Math.round((years * 12 - months) / 12 * 10) / 10);
+            setAdjustment({
+              statementDate: stmtDate, today, months,
+              originalBalance: balance, originalYears: years,
+              adjustedBalance: rolled.balance, adjustedYears: adjY,
+              interestInGap: rolled.totalInterest, principalInGap: rolled.totalPrincipal,
+              tooOld: months > 24, fixedRateLapsed, fixedEndDate,
+            });
+            setAdjBalance(String(rolled.balance));
+            setAdjYears(String(adjY));
+          }
+
+          // Set rate change info for display
+          setRateChangeInfo({
+            dealEnded: fixedRateLapsed,
+            dealEndingSoon: fixedEndingSoon,
+            dealEndDate: fixedEndDate,
+            dealEndsMonths: fixedEndDate ? monthsElapsedBetween(today, fixedEndDate) : null,
+            oldRate: rate,
+            newRate: newRate || null,
+            revertedFormula: revertingTo,
+            oldPayment: payment,
+            newPayment,
+            lenderSvr,
+            lenderName: lenderData.lender || lenderName,
+            lenderMatched: lenderData.matched || false,
+            lastFetched: lenderData.last_fetched || null,
+          });
+        })
+        .catch((err) => {
+          console.error("Failed to fetch lender rate:", err);
+          // Fall back to simple roll-forward
+          const rolled = rollForward(balance, rate, payment, months);
+          const adjY = Math.max(0, Math.round((years * 12 - months) / 12 * 10) / 10);
+          setAdjustment({
+            statementDate: stmtDate, today, months,
+            originalBalance: balance, originalYears: years,
+            adjustedBalance: rolled.balance, adjustedYears: adjY,
+            interestInGap: rolled.totalInterest, principalInGap: rolled.totalPrincipal,
+            tooOld: months > 24, fixedRateLapsed, fixedEndDate,
+          });
+          setAdjBalance(String(rolled.balance));
+          setAdjYears(String(adjY));
+        });
+    } else {
+      // No rate change — simple roll-forward
+      const rolled = rollForward(balance, rate, payment, months);
+      const adjY = Math.max(0, Math.round((years * 12 - months) / 12 * 10) / 10);
+      setAdjustment({
+        statementDate: stmtDate, today, months,
+        originalBalance: balance, originalYears: years,
+        adjustedBalance: rolled.balance, adjustedYears: adjY,
+        interestInGap: rolled.totalInterest, principalInGap: rolled.totalPrincipal,
+        tooOld: months > 24, fixedRateLapsed: false, fixedEndDate,
+      });
+      setAdjBalance(String(rolled.balance));
+      setAdjYears(String(adjY));
+      setRateChangeInfo(null);
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [parsedData]);
 
@@ -448,6 +627,7 @@ export default function MortgageAnalyzer() {
         setExtraPayment={setExtraPayment}
         targetYears={targetYears}
         setTargetYears={setTargetYears}
+        rateChangeInfo={rateChangeInfo}
         onBack={() => setStep("input")}
       />
     );
@@ -1300,10 +1480,164 @@ function StatementAdjustmentCard({ adjustment, adjBalance, setAdjBalance, adjYea
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════════
+   RATE CHANGE IMPACT
+   ═══════════════════════════════════════════════════════════════════════════════ */
+
+function RateChangeImpact({ rateChangeInfo, form, balance, isIslamicFinance }) {
+  if (!rateChangeInfo) return null;
+  const { dealEnded, dealEndingSoon, dealEndDate, dealEndsMonths, oldRate, newRate, revertedFormula, oldPayment, newPayment, lenderSvr, lenderName, lenderMatched, lastFetched } = rateChangeInfo;
+  const rateLabel = isIslamicFinance ? "rental rate" : "rate";
+  const interestLabel = isIslamicFinance ? "rental payments" : "interest";
+
+  if (!dealEnded && !dealEndingSoon) return null;
+  if (!newRate) return null;
+
+  const increase = newPayment ? newPayment - oldPayment : 0;
+  const yearlyExtra = increase * 12;
+  const remainingYears = parseFloat(form.remainingYears) || 25;
+  const totalExtraAtSvr = increase * remainingYears * 12;
+
+  // Best current fixed rate estimate (rough — 2% less than SVR as a heuristic)
+  const bestFixedEstimate = lenderSvr ? Math.max(3, lenderSvr - 2.5) : null;
+  const bestFixedPayment = bestFixedEstimate ? (() => {
+    const r = bestFixedEstimate / 100 / 12;
+    const n = remainingYears * 12;
+    return Math.round((balance * r * Math.pow(1 + r, n)) / (Math.pow(1 + r, n) - 1));
+  })() : null;
+  const remortgageSaving = bestFixedPayment ? newPayment - bestFixedPayment : null;
+
+  if (dealEnded) {
+    return (
+      <div style={{ background: "linear-gradient(135deg, #FEF2F2, #FEE2E2)", borderRadius: 16, border: "2px solid #FECACA", padding: "28px 32px", marginBottom: 24 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
+          <AlertTriangle size={22} color="#DC2626" />
+          <h3 style={{ fontSize: 18, fontWeight: 700, color: "#991B1B", margin: 0 }}>Your {rateLabel} has changed</h3>
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, marginBottom: 20 }}>
+          <div style={{ background: "white", borderRadius: 12, padding: "18px 20px", border: "1px solid #FECACA" }}>
+            <p style={{ fontSize: 12, color: "#6B7280", marginBottom: 6 }}>Fixed {rateLabel} ended</p>
+            <p style={{ fontSize: 20, fontWeight: 700, color: "#991B1B" }}>
+              {dealEndDate ? dealEndDate.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" }) : "—"}
+            </p>
+          </div>
+          <div style={{ background: "white", borderRadius: 12, padding: "18px 20px", border: "1px solid #FECACA" }}>
+            <p style={{ fontSize: 12, color: "#6B7280", marginBottom: 6 }}>Reverted to</p>
+            <p style={{ fontSize: 20, fontWeight: 700, color: "#991B1B" }}>
+              {revertedFormula || "SVR"} = {newRate.toFixed(2)}%
+            </p>
+          </div>
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16, marginBottom: 20 }}>
+          <div style={{ background: "white", borderRadius: 12, padding: "16px", textAlign: "center", border: "1px solid #E5E7EB" }}>
+            <p style={{ fontSize: 11, color: "#6B7280", marginBottom: 4 }}>Old {rateLabel}</p>
+            <p style={{ fontSize: 22, fontWeight: 800, color: "#374151" }}>{oldRate.toFixed(2)}%</p>
+            <p style={{ fontSize: 13, color: "#6B7280", marginTop: 4 }}>{fmt(Math.round(oldPayment))}/mo</p>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <ArrowRight size={28} color="#DC2626" />
+          </div>
+          <div style={{ background: "white", borderRadius: 12, padding: "16px", textAlign: "center", border: "2px solid #DC2626" }}>
+            <p style={{ fontSize: 11, color: "#DC2626", marginBottom: 4, fontWeight: 600 }}>Current {rateLabel}</p>
+            <p style={{ fontSize: 22, fontWeight: 800, color: "#DC2626" }}>{newRate.toFixed(2)}%</p>
+            <p style={{ fontSize: 13, color: "#DC2626", marginTop: 4, fontWeight: 600 }}>{newPayment ? fmt(newPayment) : "—"}/mo</p>
+          </div>
+        </div>
+
+        {increase > 0 && (
+          <div style={{ background: "#991B1B", borderRadius: 12, padding: "16px 20px", color: "white", marginBottom: 16 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, textAlign: "center" }}>
+              <div>
+                <p style={{ fontSize: 11, opacity: 0.8, marginBottom: 4 }}>Monthly increase</p>
+                <p style={{ fontSize: 20, fontWeight: 800 }}>+{fmt(Math.round(increase))}</p>
+              </div>
+              <div>
+                <p style={{ fontSize: 11, opacity: 0.8, marginBottom: 4 }}>Extra per year</p>
+                <p style={{ fontSize: 20, fontWeight: 800 }}>+{fmt(Math.round(yearlyExtra))}</p>
+              </div>
+              <div>
+                <p style={{ fontSize: 11, opacity: 0.8, marginBottom: 4 }}>Extra over full term</p>
+                <p style={{ fontSize: 20, fontWeight: 800 }}>+{fmt(Math.round(totalExtraAtSvr))}</p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {remortgageSaving && remortgageSaving > 0 && (
+          <div style={{ background: "white", borderRadius: 12, padding: "16px 20px", border: "1px solid #BBF7D0" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+              <Target size={16} color="#059669" />
+              <p style={{ fontSize: 14, fontWeight: 700, color: "#059669", margin: 0 }}>Remortgage to save</p>
+            </div>
+            <p style={{ fontSize: 13, color: "#374151", margin: "0 0 8px" }}>
+              Switching to a fixed deal at ~{bestFixedEstimate.toFixed(1)}% could save you approximately <strong>{fmt(Math.round(remortgageSaving))}/month</strong> ({fmt(Math.round(remortgageSaving * 12))}/year).
+            </p>
+            <p style={{ fontSize: 12, color: "#6B7280", margin: 0, fontStyle: "italic" }}>
+              Based on {lenderName} SVR of {lenderSvr}%.{lastFetched ? ` Rate data last updated: ${new Date(lastFetched).toLocaleDateString("en-GB")}` : ""}
+            </p>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  if (dealEndingSoon) {
+    return (
+      <div style={{ background: "linear-gradient(135deg, #FFFBEB, #FEF3C7)", borderRadius: 16, border: "2px solid #FDE68A", padding: "28px 32px", marginBottom: 24 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
+          <Clock size={22} color="#D97706" />
+          <h3 style={{ fontSize: 18, fontWeight: 700, color: "#92400E", margin: 0 }}>Your {rateLabel} is changing soon</h3>
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, marginBottom: 20 }}>
+          <div style={{ background: "white", borderRadius: 12, padding: "18px 20px", border: "1px solid #FDE68A" }}>
+            <p style={{ fontSize: 12, color: "#6B7280", marginBottom: 6 }}>Fixed {rateLabel} ends</p>
+            <p style={{ fontSize: 20, fontWeight: 700, color: "#92400E" }}>
+              {dealEndDate ? dealEndDate.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" }) : "—"}
+              {dealEndsMonths !== null && <span style={{ fontSize: 13, fontWeight: 500, color: "#D97706" }}> ({Math.abs(dealEndsMonths)} month{Math.abs(dealEndsMonths) !== 1 ? "s" : ""})</span>}
+            </p>
+          </div>
+          <div style={{ background: "white", borderRadius: 12, padding: "18px 20px", border: "1px solid #FDE68A" }}>
+            <p style={{ fontSize: 12, color: "#6B7280", marginBottom: 6 }}>Will revert to</p>
+            <p style={{ fontSize: 20, fontWeight: 700, color: "#92400E" }}>
+              {revertedFormula || "SVR"} = {newRate.toFixed(2)}%
+            </p>
+          </div>
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16, marginBottom: 16 }}>
+          <div style={{ background: "white", borderRadius: 12, padding: "14px", textAlign: "center", border: "1px solid #E5E7EB" }}>
+            <p style={{ fontSize: 11, color: "#6B7280", marginBottom: 4 }}>Current payment</p>
+            <p style={{ fontSize: 18, fontWeight: 700, color: "#374151" }}>{fmt(Math.round(oldPayment))}</p>
+          </div>
+          <div style={{ background: "white", borderRadius: 12, padding: "14px", textAlign: "center", border: "1px solid #E5E7EB" }}>
+            <p style={{ fontSize: 11, color: "#D97706", marginBottom: 4 }}>Payment after</p>
+            <p style={{ fontSize: 18, fontWeight: 700, color: "#D97706" }}>{newPayment ? fmt(newPayment) : "—"}</p>
+          </div>
+          <div style={{ background: "white", borderRadius: 12, padding: "14px", textAlign: "center", border: "1px solid #E5E7EB" }}>
+            <p style={{ fontSize: 11, color: "#6B7280", marginBottom: 4 }}>Increase</p>
+            <p style={{ fontSize: 18, fontWeight: 700, color: increase > 0 ? "#DC2626" : "#059669" }}>{increase > 0 ? "+" : ""}{fmt(Math.round(increase))}</p>
+          </div>
+        </div>
+
+        <div style={{ background: "#92400E", borderRadius: 10, padding: "14px 18px", color: "white" }}>
+          <p style={{ fontSize: 13, margin: 0, lineHeight: 1.6 }}>
+            <strong>Act now:</strong> You can apply to remortgage up to 6 months before your deal ends. Locking in a new fixed deal now could save you {fmt(Math.round(Math.abs(increase)))}/month.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  return null;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════
    RESULTS DASHBOARD
    ═══════════════════════════════════════════════════════════════════════════════ */
 
-function ResultsDashboard({ analysis, form, parsedData, adjustment, adjBalance, setAdjBalance, adjYears, setAdjYears, extraPayment, setExtraPayment, targetYears, setTargetYears, onBack }) {
+function ResultsDashboard({ analysis, form, parsedData, adjustment, adjBalance, setAdjBalance, adjYears, setAdjYears, extraPayment, setExtraPayment, targetYears, setTargetYears, rateChangeInfo, onBack }) {
   const { data: session } = useSession();
   const router = useRouter();
   const [saving, setSaving] = useState(false);
@@ -1519,6 +1853,14 @@ function ResultsDashboard({ analysis, form, parsedData, adjustment, adjBalance, 
           origLoan={parseFloat(form.originalLoanAmount) || null}
           interestRate={parseFloat(form.interestRate)}
           monthlyPayment={parseFloat(form.monthlyPayment)}
+          isIslamicFinance={isIslamicFinance}
+        />
+
+        {/* Rate change impact */}
+        <RateChangeImpact
+          rateChangeInfo={rateChangeInfo}
+          form={form}
+          balance={balance}
           isIslamicFinance={isIslamicFinance}
         />
 

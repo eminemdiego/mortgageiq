@@ -31,6 +31,8 @@ Return ONLY a valid JSON object (no markdown, no explanation, just raw JSON):
   "rateType": string,
   "fixedUntil": string or null,
   "revertingTo": string or null,
+  "revertingToDetail": string or null,
+  "dealEndDateISO": string or null,
   "earlyRepaymentCharge": number or null,
   "ercEndDate": string or null,
   "originalLoanAmount": number or null,
@@ -51,7 +53,9 @@ Field rules:
 - mortgageType: one of exactly "Repayment", "Interest Only", "Part & Part"
 - rateType: one of exactly "Fixed", "Variable / Tracker", "SVR (Standard Variable Rate)", "Discounted Variable"
 - fixedUntil: human-readable end date of current rate, e.g. "March 2027"
-- revertingTo: what rate reverts to, e.g. "Standard Variable Rate" or "SVR"
+- revertingTo: what rate reverts to, e.g. "Standard Variable Rate" or "SVR" or "SVR + 1%". Include any margin/offset mentioned (e.g. "SVR + 1%", "BBR + 3.5%"). Return the EXACT text from the document.
+- revertingToDetail: a normalised version of the reversion. Use format "SVR", "SVR+1", "SVR+0.5", "SVR-0.25", "BBR+3.5", "LVR", or the exact percentage if explicitly stated. This is for programmatic parsing.
+- dealEndDateISO: the end date of the current rate deal in ISO format YYYY-MM-DD. Parse from "fixedUntil", "End Date", "Product End Date", "Deal expires", etc. Return null if not determinable.
 - earlyRepaymentCharge: ERC as a percentage number (3% → 3), or null
 - ercEndDate: date ERC period ends, e.g. "December 2026", or null
 - originalLoanAmount: original loan/purchase plan amount in £ (number), or null
@@ -216,6 +220,8 @@ export async function POST(request) {
       rateType:             extractedData.rateType || "Fixed",
       fixedUntil:           extractedData.fixedUntil || "",
       revertingTo:          extractedData.revertingTo || "",
+      revertingToDetail:    extractedData.revertingToDetail || "",
+      dealEndDateISO:       extractedData.dealEndDateISO || null,
       earlyRepaymentCharge: str(extractedData.earlyRepaymentCharge),
       ercEndDate:           extractedData.ercEndDate || "",
       originalLoanAmount:   str(extractedData.originalLoanAmount),

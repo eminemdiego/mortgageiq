@@ -50,6 +50,13 @@ export default function AdminDashboard() {
   const [sortDir, setSortDir] = useState("desc");
   const [search, setSearch] = useState("");
 
+  // Lender rates state
+  const [lenderRates, setLenderRates] = useState([]);
+  const [lenderLoading, setLenderLoading] = useState(false);
+  const [editingRate, setEditingRate] = useState(null);
+  const [editSvr, setEditSvr] = useState("");
+  const [showRates, setShowRates] = useState(false);
+
   // Gate: redirect non-admins immediately
   useEffect(() => {
     if (status === "loading") return;
@@ -59,8 +66,47 @@ export default function AdminDashboard() {
   }, [status, session, router]);
 
   useEffect(() => {
-    if (session?.user?.email === ADMIN_EMAIL) fetchUsers();
+    if (session?.user?.email === ADMIN_EMAIL) {
+      fetchUsers();
+      fetchLenderRates();
+    }
   }, [session]);
+
+  const fetchLenderRates = async () => {
+    setLenderLoading(true);
+    try {
+      const res = await fetch("/api/lender-rates?all=true");
+      if (!res.ok) throw new Error("Failed to fetch");
+      const data = await res.json();
+      setLenderRates(data.lenders || []);
+    } catch (err) {
+      console.error("Failed to fetch lender rates:", err);
+    } finally {
+      setLenderLoading(false);
+    }
+  };
+
+  const seedLenderRates = async () => {
+    try {
+      await fetch("/api/lender-rates", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ seed: true }) });
+      fetchLenderRates();
+    } catch (err) {
+      console.error("Seed failed:", err);
+    }
+  };
+
+  const saveRate = async (id) => {
+    const val = parseFloat(editSvr);
+    if (!val || val <= 0) return;
+    try {
+      await fetch("/api/lender-rates", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, svr_rate: val }) });
+      setEditingRate(null);
+      setEditSvr("");
+      fetchLenderRates();
+    } catch (err) {
+      console.error("Save rate failed:", err);
+    }
+  };
 
   const fetchUsers = async () => {
     setLoading(true);
@@ -303,6 +349,106 @@ export default function AdminDashboard() {
             {sorted.length} user{sorted.length !== 1 ? "s" : ""} · last refreshed {new Date().toLocaleTimeString("en-GB")}
           </p>
         )}
+
+        {/* Lender Rates Management */}
+        <div style={{ marginTop: 48 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+              <div style={{ width: 32, height: 32, borderRadius: 8, background: "#F59E0B20", display: "flex", alignItems: "center", justifyContent: "center", color: "#F59E0B" }}>
+                <TrendingDown size={16} />
+              </div>
+              <h2 style={{ fontSize: 18, fontWeight: 700, margin: 0 }}>Lender SVR Rates</h2>
+              <button onClick={() => setShowRates(!showRates)} style={{ background: "none", border: "1px solid #334155", borderRadius: 6, padding: "4px 12px", fontSize: 12, color: "#94A3B8", cursor: "pointer" }}>
+                {showRates ? "Hide" : "Show"}
+              </button>
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button onClick={seedLenderRates} style={{ padding: "8px 14px", background: "#1E293B", color: "#94A3B8", border: "1px solid #334155", borderRadius: 8, fontSize: 12, cursor: "pointer" }}>
+                Seed Defaults
+              </button>
+              <button onClick={fetchLenderRates} style={{ padding: "8px 14px", background: "#1E293B", color: "#94A3B8", border: "1px solid #334155", borderRadius: 8, fontSize: 12, cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}>
+                <RefreshCw size={12} /> Refresh
+              </button>
+            </div>
+          </div>
+
+          {showRates && (
+            <div style={{ background: "#1E293B", border: "1px solid #334155", borderRadius: 16, overflow: "hidden" }}>
+              {lenderLoading ? (
+                <div style={{ padding: "40px 20px", textAlign: "center", color: "#64748B" }}>Loading rates...</div>
+              ) : lenderRates.length === 0 ? (
+                <div style={{ padding: "40px 20px", textAlign: "center", color: "#64748B" }}>
+                  No lender rates found. Click "Seed Defaults" to populate with major UK lenders.
+                </div>
+              ) : (
+                <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                  <thead>
+                    <tr style={{ background: "#0F172A" }}>
+                      <th style={{ padding: "12px 16px", textAlign: "left", fontSize: 12, color: "#94A3B8", fontWeight: 600, textTransform: "uppercase", borderBottom: "1px solid #1E293B" }}>Lender</th>
+                      <th style={{ padding: "12px 16px", textAlign: "center", fontSize: 12, color: "#94A3B8", fontWeight: 600, textTransform: "uppercase", borderBottom: "1px solid #1E293B" }}>Type</th>
+                      <th style={{ padding: "12px 16px", textAlign: "center", fontSize: 12, color: "#94A3B8", fontWeight: 600, textTransform: "uppercase", borderBottom: "1px solid #1E293B" }}>SVR Rate</th>
+                      <th style={{ padding: "12px 16px", textAlign: "center", fontSize: 12, color: "#94A3B8", fontWeight: 600, textTransform: "uppercase", borderBottom: "1px solid #1E293B" }}>Last Updated</th>
+                      <th style={{ padding: "12px 16px", textAlign: "center", fontSize: 12, color: "#94A3B8", fontWeight: 600, textTransform: "uppercase", borderBottom: "1px solid #1E293B" }}>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {lenderRates.map((lr, i) => {
+                      const daysSince = lr.last_fetched ? Math.round((Date.now() - new Date(lr.last_fetched).getTime()) / 86400000) : 999;
+                      const stale = daysSince > 14;
+                      return (
+                        <tr key={lr.id} className="row-hover" style={{ background: i % 2 === 0 ? "#1E293B" : "#162032" }}>
+                          <td style={{ padding: "12px 16px", fontSize: 14, fontWeight: 500, color: "#E2E8F0" }}>
+                            {lr.lender_name}
+                          </td>
+                          <td style={{ padding: "12px 16px", textAlign: "center" }}>
+                            <span style={{
+                              padding: "3px 10px", borderRadius: 20, fontSize: 11, fontWeight: 600,
+                              background: lr.rate_type?.includes("Islamic") ? "#1a2e1a" : lr.rate_type === "BTL" ? "#2e1a1a" : "#1a1a2e",
+                              color: lr.rate_type?.includes("Islamic") ? "#4ADE80" : lr.rate_type === "BTL" ? "#FCA5A5" : "#818CF8",
+                            }}>
+                              {lr.rate_type || "Standard"}
+                            </span>
+                          </td>
+                          <td style={{ padding: "12px 16px", textAlign: "center" }}>
+                            {editingRate === lr.id ? (
+                              <input
+                                type="number"
+                                step="0.01"
+                                value={editSvr}
+                                onChange={(e) => setEditSvr(e.target.value)}
+                                onKeyDown={(e) => { if (e.key === "Enter") saveRate(lr.id); if (e.key === "Escape") { setEditingRate(null); setEditSvr(""); } }}
+                                autoFocus
+                                style={{ width: 80, padding: "4px 8px", background: "#0F172A", border: "1px solid #6366F1", borderRadius: 6, fontSize: 14, color: "#F1F5F9", textAlign: "center", outline: "none" }}
+                              />
+                            ) : (
+                              <span style={{ fontSize: 16, fontWeight: 700, color: "#F1F5F9" }}>{lr.svr_rate}%</span>
+                            )}
+                          </td>
+                          <td style={{ padding: "12px 16px", textAlign: "center" }}>
+                            <span style={{ fontSize: 12, color: stale ? "#FCA5A5" : "#64748B" }}>
+                              {lr.last_fetched ? fmtDate(lr.last_fetched) : "Never"}
+                              {stale && <span style={{ marginLeft: 6, color: "#F59E0B", fontSize: 11 }}>⚠ stale</span>}
+                            </span>
+                          </td>
+                          <td style={{ padding: "12px 16px", textAlign: "center" }}>
+                            {editingRate === lr.id ? (
+                              <div style={{ display: "flex", gap: 6, justifyContent: "center" }}>
+                                <button onClick={() => saveRate(lr.id)} style={{ padding: "4px 12px", background: "#10B981", color: "white", border: "none", borderRadius: 6, fontSize: 12, cursor: "pointer", fontWeight: 600 }}>Save</button>
+                                <button onClick={() => { setEditingRate(null); setEditSvr(""); }} style={{ padding: "4px 12px", background: "#334155", color: "#94A3B8", border: "none", borderRadius: 6, fontSize: 12, cursor: "pointer" }}>Cancel</button>
+                              </div>
+                            ) : (
+                              <button onClick={() => { setEditingRate(lr.id); setEditSvr(String(lr.svr_rate)); }} style={{ padding: "4px 14px", background: "#334155", color: "#94A3B8", border: "none", borderRadius: 6, fontSize: 12, cursor: "pointer" }}>Edit</button>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
