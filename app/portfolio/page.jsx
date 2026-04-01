@@ -9,14 +9,47 @@ import {
 
 const fmt = (n) => "£" + Number(n || 0).toLocaleString("en-GB");
 
-function calcCashFlow(p) {
+// Parse "SVR + 1%" style reversion strings and compute rate
+function parseReversionRate(revertingTo, svrRate) {
+  if (!revertingTo || !svrRate) return svrRate || null;
+  const rt = revertingTo.toLowerCase().trim();
+  const marginMatch = rt.match(/(?:svr|standard\s*variable|lender\s*variable|variable\s*rate)\s*([+-])\s*([\d.]+)/);
+  if (marginMatch) {
+    const sign = marginMatch[1] === "+" ? 1 : -1;
+    return Math.round((svrRate + sign * parseFloat(marginMatch[2])) * 100) / 100;
+  }
+  if (rt.includes("svr") || rt.includes("standard variable") || rt.includes("variable")) return svrRate;
+  return svrRate;
+}
+
+// Get effective rate and payment for a property, accounting for deal end
+function getEffective(p, lenderRatesMap) {
+  const rate = p.interest_rate || 0;
+  const payment = p.monthly_payment || 0;
+  if (!p.fixed_until) return { rate, payment, dealEnded: false };
+  const end = new Date(p.fixed_until);
+  if (isNaN(end.getTime()) || end > new Date()) return { rate, payment, dealEnded: false };
+  // Deal has ended — look up SVR
+  const lender = lenderRatesMap[p.lender?.toLowerCase()];
+  if (!lender) return { rate, payment, dealEnded: true, noSvr: true };
+  const revertedRate = parseReversionRate(p.reverting_to, lender.svr_rate);
+  if (!revertedRate || !p.outstanding_balance || !p.remaining_years) return { rate: revertedRate || rate, payment, dealEnded: true };
+  // Recalculate payment at reverted rate
+  const r = revertedRate / 100 / 12;
+  const n = p.remaining_years * 12;
+  const newPayment = r > 0 && n > 0 ? Math.round((p.outstanding_balance * r * Math.pow(1 + r, n)) / (Math.pow(1 + r, n) - 1)) : payment;
+  return { rate: revertedRate, payment: newPayment, dealEnded: true, svrRate: lender.svr_rate };
+}
+
+function calcCashFlow(p, eff) {
   const agentFee = (p.monthly_rent * (p.management_fee_pct || 0)) / 100;
+  const pmt = eff ? eff.payment : (p.monthly_payment || 0);
   const costs = agentFee + (p.buildings_insurance || 0) + (p.landlord_insurance || 0) +
     (p.ground_rent || 0) + (p.service_charge || 0) + (p.maintenance_reserve || 0);
   return {
-    net: p.monthly_rent - (p.monthly_payment || 0) - costs,
+    net: p.monthly_rent - pmt - costs,
     agentFee,
-    costs: (p.monthly_payment || 0) + costs,
+    costs: pmt + costs,
   };
 }
 
@@ -57,14 +90,29 @@ export default function PortfolioDashboard() {
   const [sortDir, setSortDir] = useState("asc");
   const [filterStatus, setFilterStatus] = useState("all");
   const [search, setSearch] = useState("");
+  const [lenderRatesMap, setLenderRatesMap] = useState({}); // { "gatehouse bank": { svr_rate: 7.99, ... } }
 
   useEffect(() => {
     if (status === "unauthenticated") router.push("/auth/signin");
   }, [status, router]);
 
   useEffect(() => {
-    if (session?.user?.id) fetchProperties();
+    if (session?.user?.id) {
+      fetchProperties();
+      fetchLenderRates();
+    }
   }, [session]);
+
+  const fetchLenderRates = async () => {
+    try {
+      const res = await fetch("/api/lender-rates?all=true");
+      if (!res.ok) return;
+      const data = await res.json();
+      const map = {};
+      (data.lenders || []).forEach((l) => { map[l.lender_name.toLowerCase()] = l; });
+      setLenderRatesMap(map);
+    } catch { /* silent */ }
+  };
 
   const fetchProperties = async () => {
     try {
@@ -134,14 +182,14 @@ export default function PortfolioDashboard() {
         case "status": va = isOccupied(a) ? 0 : 1; vb = isOccupied(b) ? 0 : 1; break;
         case "tenant": va = (a.tenant_name || "").toLowerCase(); vb = (b.tenant_name || "").toLowerCase(); break;
         case "rent": va = a.monthly_rent || 0; vb = b.monthly_rent || 0; break;
-        case "mortgage": va = a.monthly_payment || 0; vb = b.monthly_payment || 0; break;
+        case "mortgage": va = getEffective(a, lenderRatesMap).payment; vb = getEffective(b, lenderRatesMap).payment; break;
         case "agentFee": va = (a.monthly_rent * (a.management_fee_pct || 0)) / 100; vb = (b.monthly_rent * (b.management_fee_pct || 0)) / 100; break;
-        case "profit": va = calcCashFlow(a).net; vb = calcCashFlow(b).net; break;
+        case "profit": va = calcCashFlow(a, getEffective(a, lenderRatesMap)).net; vb = calcCashFlow(b, getEffective(b, lenderRatesMap)).net; break;
         case "yield": va = grossYield(a) || 0; vb = grossYield(b) || 0; break;
         case "value": va = a.estimated_value || 0; vb = b.estimated_value || 0; break;
         case "balance": va = a.outstanding_balance || 0; vb = b.outstanding_balance || 0; break;
         case "ltv": va = a.estimated_value ? ((a.outstanding_balance || 0) / a.estimated_value) * 100 : 0; vb = b.estimated_value ? ((b.outstanding_balance || 0) / b.estimated_value) * 100 : 0; break;
-        case "rate": va = a.interest_rate || 0; vb = b.interest_rate || 0; break;
+        case "rate": va = getEffective(a, lenderRatesMap).rate; vb = getEffective(b, lenderRatesMap).rate; break;
         case "rateEnds": va = a.fixed_until ? new Date(a.fixed_until).getTime() : Infinity; vb = b.fixed_until ? new Date(b.fixed_until).getTime() : Infinity; break;
         case "termLeft": va = a.remaining_years || 0; vb = b.remaining_years || 0; break;
         case "rentReview": va = rentReviewInfo(a).eligible ? 0 : 1; vb = rentReviewInfo(b).eligible ? 0 : 1; break;
@@ -152,7 +200,7 @@ export default function PortfolioDashboard() {
     });
 
     return list;
-  }, [properties, filterStatus, search, sortKey, sortDir]);
+  }, [properties, filterStatus, search, sortKey, sortDir, lenderRatesMap]);
 
   if (status === "loading" || loading) {
     return (
@@ -166,7 +214,7 @@ export default function PortfolioDashboard() {
   }
 
   const totalIncome = properties.reduce((s, p) => s + (p.monthly_rent || 0), 0);
-  const totalCosts = properties.reduce((s, p) => s + calcCashFlow(p).costs, 0);
+  const totalCosts = properties.reduce((s, p) => s + calcCashFlow(p, getEffective(p, lenderRatesMap)).costs, 0);
   const totalNet = totalIncome - totalCosts;
   const totalValue = properties.reduce((s, p) => s + (p.estimated_value || 0), 0);
   const yieldProps = properties.filter(p => grossYield(p));
@@ -345,7 +393,8 @@ export default function PortfolioDashboard() {
                 </thead>
                 <tbody>
                   {filtered.map((p, i) => {
-                    const { net, agentFee } = calcCashFlow(p);
+                    const eff = getEffective(p, lenderRatesMap);
+                    const { net, agentFee } = calcCashFlow(p, eff);
                     const gy = grossYield(p);
                     const occupied = isOccupied(p);
                     const rr = rentReviewInfo(p);
@@ -390,13 +439,15 @@ export default function PortfolioDashboard() {
                         {/* Rent */}
                         <td style={{ padding: C, fontWeight: 600, textAlign: "right", fontSize: 14, color: "#4F46E5", borderRight: borderR }}>{fmt(p.monthly_rent)}</td>
 
-                        {/* Payment */}
-                        <td style={{ padding: C, textAlign: "right", fontSize: 13, color: "#4B5563", borderRight: borderR }}>{p.monthly_payment ? fmt(p.monthly_payment) : "—"}</td>
+                        {/* Payment — use effective payment */}
+                        <td style={{ padding: C, textAlign: "right", fontSize: 13, color: eff.dealEnded ? "#DC2626" : "#4B5563", fontWeight: eff.dealEnded ? 600 : 400, borderRight: borderR }}>
+                          {eff.payment ? fmt(eff.payment) : "—"}
+                        </td>
 
                         {/* Agent Fee */}
                         <td style={{ padding: C, textAlign: "right", fontSize: 13, color: "#9CA3AF", borderRight: borderR }}>{agentFee > 0 ? fmt(Math.round(agentFee)) : "—"}</td>
 
-                        {/* Net Profit */}
+                        {/* Net Profit — uses effective payment */}
                         <td style={{ padding: C, fontWeight: 800, color: net >= 0 ? "#059669" : "#DC2626", textAlign: "right", fontSize: 15, borderRight: borderR }}>{fmt(Math.round(net))}</td>
 
                         {/* Yield */}
@@ -425,28 +476,28 @@ export default function PortfolioDashboard() {
                           })()}
                         </td>
 
-                        {/* Rate */}
+                        {/* Rate — use effective rate */}
                         <td style={{ padding: C, textAlign: "center", borderRight: borderR }}>
-                          {p.interest_rate ? (
+                          {eff.rate ? (
                             <div>
-                              <span style={{ fontWeight: 700, fontSize: 14, color: "#111" }}>{p.interest_rate}%</span>
-                              {p.rate_type && (
-                                <div style={{ marginTop: 3 }}>
-                                  <span style={{ padding: "2px 8px", borderRadius: 10, fontSize: 10, fontWeight: 600, background: p.rate_type === "Fixed" ? "#EEF2FF" : p.rate_type === "Variable" ? "#FFF7ED" : "#F3F4F6", color: p.rate_type === "Fixed" ? "#4F46E5" : p.rate_type === "Variable" ? "#EA580C" : "#6B7280" }}>
-                                    {p.rate_type}
-                                  </span>
-                                </div>
-                              )}
+                              <span style={{ fontWeight: 700, fontSize: 14, color: eff.dealEnded ? "#DC2626" : "#111" }}>{eff.rate.toFixed ? eff.rate.toFixed(2) : eff.rate}%</span>
+                              <div style={{ marginTop: 3 }}>
+                                <span style={{ padding: "2px 8px", borderRadius: 10, fontSize: 10, fontWeight: 600, background: eff.dealEnded ? "#FEE2E2" : p.rate_type === "Fixed" ? "#EEF2FF" : p.rate_type === "Variable" ? "#FFF7ED" : "#F3F4F6", color: eff.dealEnded ? "#DC2626" : p.rate_type === "Fixed" ? "#4F46E5" : p.rate_type === "Variable" ? "#EA580C" : "#6B7280" }}>
+                                  {eff.dealEnded ? "SVR" : (p.rate_type || "—")}
+                                </span>
+                              </div>
                             </div>
                           ) : <span style={{ color: "#D1D5DB" }}>—</span>}
                         </td>
 
-                        {/* Deal Ends */}
+                        {/* Deal Ends — show "Ended" if deal has lapsed */}
                         <td style={{ padding: C, textAlign: "center", borderRight: borderR }}>
                           {(() => {
                             if (!p.fixed_until) return <span style={{ padding: "3px 10px", borderRadius: 10, fontSize: 11, fontWeight: 500, background: "#F3F4F6", color: "#9CA3AF" }}>SVR</span>;
                             const end = new Date(p.fixed_until);
+                            if (isNaN(end.getTime())) return <span style={{ color: "#D1D5DB" }}>—</span>;
                             const months = Math.round((end - new Date()) / (1000 * 60 * 60 * 24 * 30.44));
+                            if (months <= 0) return <span style={{ padding: "3px 10px", borderRadius: 10, fontSize: 11, fontWeight: 600, background: "#FEE2E2", color: "#DC2626" }}>Ended</span>;
                             const color = months <= 3 ? "#DC2626" : months <= 6 ? "#D97706" : "#059669";
                             return <span style={{ fontSize: 13, fontWeight: 600, color }}>{end.toLocaleDateString("en-GB", { month: "short", year: "numeric" })}</span>;
                           })()}
