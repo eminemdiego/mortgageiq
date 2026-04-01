@@ -440,9 +440,11 @@ export default function MortgageAnalyzer() {
     const revertingTo = parsedData.revertingTo || parsedData.revertingToDetail || "";
     const lenderName = parsedData.bank || form.bank || "";
 
-    if ((fixedRateLapsed || fixedEndingSoon) && revertingTo && lenderName) {
+    if ((fixedRateLapsed || fixedEndingSoon) && lenderName) {
       // Fetch lender SVR and compute reverted rate
-      fetch(`/api/lender-rates?lender=${encodeURIComponent(lenderName)}&revertingTo=${encodeURIComponent(revertingTo)}`)
+      // Even if revertingTo is empty, we still fetch SVR as the default reversion rate
+      const revertParam = revertingTo || "SVR";
+      fetch(`/api/lender-rates?lender=${encodeURIComponent(lenderName)}&revertingTo=${encodeURIComponent(revertParam)}`)
         .then((r) => r.json())
         .then((lenderData) => {
           let newRate = null;
@@ -561,7 +563,7 @@ export default function MortgageAnalyzer() {
           setAdjYears(String(adjY));
         });
     } else {
-      // No rate change — simple roll-forward
+      // No lender name to look up, or deal hasn't ended/isn't ending soon
       const rolled = rollForward(balance, rate, payment, months);
       const adjY = Math.max(0, Math.round((years * 12 - months) / 12 * 10) / 10);
       setAdjustment({
@@ -569,11 +571,31 @@ export default function MortgageAnalyzer() {
         originalBalance: balance, originalYears: years,
         adjustedBalance: rolled.balance, adjustedYears: adjY,
         interestInGap: rolled.totalInterest, principalInGap: rolled.totalPrincipal,
-        tooOld: months > 24, fixedRateLapsed: false, fixedEndDate,
+        tooOld: months > 24, fixedRateLapsed, fixedEndDate,
       });
       setAdjBalance(String(rolled.balance));
       setAdjYears(String(adjY));
-      setRateChangeInfo(null);
+
+      // If deal has lapsed but we couldn't fetch SVR (no lender), still set rate change info
+      if (fixedRateLapsed || fixedEndingSoon) {
+        setRateChangeInfo({
+          dealEnded: fixedRateLapsed,
+          dealEndingSoon: fixedEndingSoon,
+          dealEndDate: fixedEndDate,
+          dealEndsMonths: fixedEndDate ? monthsElapsedBetween(today, fixedEndDate) : null,
+          oldRate: rate,
+          newRate: null,
+          revertedFormula: revertingTo || "SVR",
+          oldPayment: payment,
+          newPayment: null,
+          lenderSvr: null,
+          lenderName: lenderName || "Unknown",
+          lenderMatched: false,
+          lastFetched: null,
+        });
+      } else {
+        setRateChangeInfo(null);
+      }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [parsedData]);
@@ -1490,7 +1512,32 @@ function RateChangeImpact({ rateChangeInfo, form, balance, isIslamicFinance }) {
   const interestLabel = isIslamicFinance ? "rental payments" : "interest";
 
   if (!dealEnded && !dealEndingSoon) return null;
-  if (!newRate) return null;
+
+  // If we couldn't fetch a new rate, still show a warning that the deal has ended/ending
+  if (!newRate) {
+    return (
+      <div style={{ background: dealEnded ? "linear-gradient(135deg, #FEF2F2, #FEE2E2)" : "linear-gradient(135deg, #FFFBEB, #FEF3C7)", borderRadius: 16, border: `2px solid ${dealEnded ? "#FECACA" : "#FDE68A"}`, padding: "28px 32px", marginBottom: 24 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+          <AlertTriangle size={22} color={dealEnded ? "#DC2626" : "#D97706"} />
+          <h3 style={{ fontSize: 18, fontWeight: 700, color: dealEnded ? "#991B1B" : "#92400E", margin: 0 }}>
+            {dealEnded ? `Your fixed ${rateLabel} has ended` : `Your fixed ${rateLabel} is ending soon`}
+          </h3>
+        </div>
+        <p style={{ fontSize: 14, color: dealEnded ? "#991B1B" : "#92400E", margin: "0 0 12px", lineHeight: 1.6 }}>
+          Your fixed {rateLabel} of {oldRate.toFixed(2)}% {dealEnded ? "ended" : "ends"} on {dealEndDate ? dealEndDate.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" }) : "—"}.
+          {dealEnded
+            ? ` Your rate has now reverted to ${revertedFormula || "your lender's variable rate"}. Your monthly payments may have increased.`
+            : ` After this date your rate will revert to ${revertedFormula || "your lender's variable rate"}.`
+          }
+        </p>
+        {!lenderMatched && (
+          <p style={{ fontSize: 13, color: "#6B7280", margin: 0, fontStyle: "italic" }}>
+            We don't have live rate data for {lenderName} yet — check with your lender for their current SVR to see the exact impact.
+          </p>
+        )}
+      </div>
+    );
+  }
 
   const increase = newPayment ? newPayment - oldPayment : 0;
   const yearlyExtra = increase * 12;
